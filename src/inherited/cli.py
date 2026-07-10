@@ -94,6 +94,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Resume from checkpoint.json in the output directory",
     )
+    analyze.add_argument(
+        "--remove-repeats",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="Skip variants inside repeat intervals [start, end) from this file",
+    )
 
     return parser
 
@@ -111,6 +118,9 @@ def main(argv: list[str] | None = None) -> None:
         if not args.family_file.is_file():
             print(f"error: family file not found: {args.family_file}", file=sys.stderr)
             raise SystemExit(1)
+        if args.remove_repeats is not None and not args.remove_repeats.is_file():
+            print(f"error: repeat intervals file not found: {args.remove_repeats}", file=sys.stderr)
+            raise SystemExit(1)
 
         try:
             stats = analyze_vcf(
@@ -126,6 +136,7 @@ def main(argv: list[str] | None = None) -> None:
                 segment_size=args.segment_size,
                 short_format=args.short_format,
                 resume=args.resume,
+                repeats_path=args.remove_repeats,
             )
         except (FileNotFoundError, ValueError) as exc:
             print(f"error: {exc}", file=sys.stderr)
@@ -144,6 +155,7 @@ def main(argv: list[str] | None = None) -> None:
             segment_size=args.segment_size,
             short_format=args.short_format,
             resume=args.resume,
+            repeats_path=args.remove_repeats,
         )
         output_label = (
             "segmented TSV files"

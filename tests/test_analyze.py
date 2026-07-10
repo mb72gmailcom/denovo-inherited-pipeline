@@ -52,6 +52,26 @@ def test_analyze_vcf_writes_segmented_output(tmp_path):
     assert stats.inherited_variants == 1
 
 
+def test_analyze_vcf_skips_variants_in_repeat_intervals(tmp_path):
+    stats = analyze_vcf(
+        vcf_path=FIXTURES / "tiny.vcf",
+        af_json_path=FIXTURES / "tiny_af.json",
+        family_file=FIXTURES / "families.tsv",
+        output_dir=tmp_path / "out",
+        segment_size=0,
+        repeats_path=FIXTURES / "tiny_repeats.bed",
+    )
+
+    inherited_records = read_result_tsv(tmp_path / "out" / "inherited.tsv", short_format=True)
+    bad_records = read_result_tsv(tmp_path / "out" / "mendelian_bad.tsv", short_format=True)
+
+    assert len(inherited_records) == 0
+    assert len(bad_records) == 1
+    assert bad_records[0][1] == "4000"
+    assert stats.inherited_variants == 0
+    assert stats.mendelian_bad_variants == 1
+
+
 def test_resume_continues_from_checkpoint(tmp_path):
     out = tmp_path / "out"
     out.mkdir()

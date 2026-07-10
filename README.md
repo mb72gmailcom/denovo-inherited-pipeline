@@ -73,6 +73,19 @@ python run.py analyze \
   --memory-block 50000
 ```
 
+Skip variants inside repetitive regions (one file per chromosome):
+
+```bash
+python run.py analyze \
+  --vcf chr22.vcf.gz \
+  --af-json gnomad_chr22.json \
+  --family-file families.tsv \
+  -o results/chr22 \
+  --remove-repeats chr22_repeats.bed
+```
+
+Repeat files are whitespace-separated ``chrom start end`` rows with half-open intervals ``[start, end)``.
+
 ## Output
 
 The output directory contains:

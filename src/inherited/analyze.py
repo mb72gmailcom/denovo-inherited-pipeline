@@ -25,6 +25,7 @@ from inherited.debug import log_memory_if_due
 from inherited.families import build_trio_indices, load_family_relations
 from inherited.genotype import get_good_site
 from inherited.output import ResultWriter
+from inherited.repeats import RepeatIntervalFilter
 
 
 def get_nfields(line: str, n: int) -> list[str]:
@@ -55,6 +56,7 @@ def analyze_vcf(
     segment_size: int = DEFAULT_SEGMENT_SIZE,
     short_format: bool = True,
     resume: bool = False,
+    repeats_path: Path | None = None,
 ) -> AnalysisStats:
     """Scan a VCF, classify trios, and stream results to segmented TSV files."""
     if resume and segment_size <= 0:
@@ -87,6 +89,12 @@ def analyze_vcf(
         )
         resume_last_pos = -1
 
+    repeat_filter: RepeatIntervalFilter | None = None
+    if repeats_path is not None:
+        repeat_filter = RepeatIntervalFilter(repeats_path)
+        if resume_last_pos >= 0:
+            repeat_filter.advance_past(resume_last_pos)
+
     try:
         opener = gzip.open if str(vcf_path).endswith(".gz") else open
         with opener(vcf_path, "rt", encoding="utf-8") as handle:
@@ -104,6 +112,8 @@ def analyze_vcf(
                 fields = line.rstrip().split("\t")
                 pos = int(fields[1])
                 if pos <= resume_last_pos:
+                    continue
+                if repeat_filter is not None and repeat_filter.in_repeat(pos):
                     continue
 
                 if multiallelic:
@@ -131,6 +141,8 @@ def analyze_vcf(
                     memory_block=memory_block,
                 )
     finally:
+        if repeat_filter is not None:
+            repeat_filter.close()
         writer.close()
 
     writer.finalize(completed=True)
@@ -306,6 +318,7 @@ def save_run_params(
     segment_size: int = DEFAULT_SEGMENT_SIZE,
     short_format: bool = True,
     resume: bool = False,
+    repeats_path: Path | None = None,
 ) -> Path:
     """Write the parameters for this run into the chromosome output directory."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -326,6 +339,7 @@ def save_run_params(
         "segment_size": segment_size,
         "short_format": short_format,
         "resume": resume,
+        "remove_repeats": str(repeats_path.resolve()) if repeats_path is not None else None,
         "quality_filters": {
             "gq": DEFAULT_GQ,
             "dp": DEFAULT_DP,
