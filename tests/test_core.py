@@ -3,12 +3,22 @@ from pathlib import Path
 import pytest
 
 from inherited.af import is_rare, load_af_json
+from inherited.analyze import get_position
 from inherited.classify import classify_trio
 from inherited.families import load_family_relations
 from inherited.genotype import get_good_site, is_good
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def test_get_position_parses_without_sample_fields():
+    assert get_position("chr22\t12345\tid\tA\tG\t.\t.\t.\tGT\t0/1\n") == 12345
+
+
+def test_get_position_rejects_malformed_record():
+    with pytest.raises(ValueError, match="Malformed VCF"):
+        get_position("chr22\t12345")
 
 
 def test_load_af_json_scalar_and_object(tmp_path):

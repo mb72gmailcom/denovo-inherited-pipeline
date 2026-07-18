@@ -94,6 +94,7 @@ The output directory contains:
 - `inherited.tsv` / `mendelian_bad.tsv` — single files when `--segment-size 0`
 - `checkpoint.json` — resume point (updated after each segment)
 - `stats_cumulative.json` — running totals (updated after each segment)
+- `cumulative_detail_deltas.jsonl` — append-only per-segment summary details used for resume
 - `inherited_per_variant_segXXXXX.json` — per-segment variant counts (merged at end)
 - `inherited_per_variant.json` — merged variant counts
 - `inherited_per_person.json` — person id → number of inherited variants

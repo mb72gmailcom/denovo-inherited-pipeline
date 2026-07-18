@@ -29,7 +29,21 @@ from inherited.repeats import RepeatIntervalFilter
 
 
 def get_nfields(line: str, n: int) -> list[str]:
-    return line.rstrip().split("\t")[:n]
+    end = -1
+    for _ in range(n):
+        end = line.find("\t", end + 1)
+        if end < 0:
+            return line.rstrip().split("\t")[:n]
+    return line[:end].split("\t")
+
+
+def get_position(line: str) -> int:
+    """Parse the POS column without splitting the full VCF sample row."""
+    first_tab = line.find("\t")
+    second_tab = line.find("\t", first_tab + 1)
+    if first_tab < 0 or second_tab < 0:
+        raise ValueError("Malformed VCF record: expected at least three columns")
+    return int(line[first_tab + 1 : second_tab])
 
 
 @dataclass
@@ -109,8 +123,7 @@ def analyze_vcf(
                     _, trios_ind = build_trio_indices(sample_header, relations.trio_cl)
                     continue
 
-                fields = line.rstrip().split("\t")
-                pos = int(fields[1])
+                pos = get_position(line)
                 if pos <= resume_last_pos:
                     continue
                 if repeat_filter is not None and repeat_filter.in_repeat(pos):
@@ -174,9 +187,9 @@ def _process_multiallelic_line(
 
     skeys = keys.split(";")
     salts = alts.split(",")
-    sample_fields = line.rstrip().split("\t")[9:]
     writer.cumulative.variants_seen += 1
 
+    alleles_to_process: list[tuple[int, str, str]] = []
     for alt_index, key in enumerate(skeys, start=1):
         if alt_index > len(salts):
             break
@@ -186,7 +199,13 @@ def _process_multiallelic_line(
         alt = salts[alt_index - 1]
         if len(alt) > 1:
             continue
+        alleles_to_process.append((alt_index, key, alt))
 
+    if not alleles_to_process:
+        return
+
+    sample_fields = line.rstrip().split("\t")[9:]
+    for alt_index, key, alt in alleles_to_process:
         writer.cumulative.alleles_tested += 1
         _process_trios_for_allele(
             chrom,

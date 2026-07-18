@@ -50,6 +50,13 @@ def test_analyze_vcf_writes_segmented_output(tmp_path):
     assert (tmp_path / "out" / "checkpoint.json").is_file()
     assert (tmp_path / "out" / "stats_cumulative.json").is_file()
     assert stats.inherited_variants == 1
+    checkpoint_data = json.loads((tmp_path / "out" / "checkpoint.json").read_text())
+    assert checkpoint_data["details_external"] is True
+    assert "inherited_per_person" not in checkpoint_data["cumulative"]
+    cumulative_data = json.loads(
+        (tmp_path / "out" / "stats_cumulative.json").read_text()
+    )
+    assert "inherited_per_person" not in cumulative_data
 
 
 def test_analyze_vcf_skips_variants_in_repeat_intervals(tmp_path):
