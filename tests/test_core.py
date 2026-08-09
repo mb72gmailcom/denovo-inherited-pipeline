@@ -7,7 +7,7 @@ from inherited.analyze import get_position
 from inherited.classify import classify_trio
 from inherited.families import load_family_relations, normalize_sex
 from inherited.genotype import get_good_site, is_good
-from inherited.xchrom import is_x_chrom, male_x_bucket, x_region
+from inherited.xchrom import chrom_mode_for, is_x_chrom, is_y_chrom, male_x_bucket, x_region
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -154,6 +154,11 @@ def test_x_region_and_buckets():
     assert is_x_chrom("X")
     assert is_x_chrom("chrX")
     assert not is_x_chrom("22")
+    assert is_y_chrom("Y")
+    assert is_y_chrom("chrY")
+    assert chrom_mode_for("chrX") == "x"
+    assert chrom_mode_for("chrY") == "y"
+    assert chrom_mode_for("22") == "autosomal"
     assert x_region(10001) == "par1"
     assert x_region(2781479) == "par1"
     assert x_region(2781480) == "nonPar"

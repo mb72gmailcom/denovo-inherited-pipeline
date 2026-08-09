@@ -27,8 +27,10 @@ from inherited.genotype import get_good_site
 from inherited.output import HitRecord, ResultWriter
 from inherited.repeats import RepeatIntervalFilter
 from inherited.xchrom import (
+    CHROM_MODE_AUTOSOMAL,
     X_BUCKET_FEMALES,
-    is_x_chrom,
+    X_BUCKET_MALE_NONPAR,
+    chrom_mode_for,
     male_x_bucket,
     x_region,
 )
@@ -98,7 +100,11 @@ def analyze_vcf(
             block_size=block_size,
             segment_size=segment_size,
             short_format=short_format,
-            x_mode=is_x_chrom(checkpoint.chrom) if checkpoint.chrom else False,
+            chrom_mode=(
+                chrom_mode_for(checkpoint.chrom)
+                if checkpoint.chrom
+                else CHROM_MODE_AUTOSOMAL
+            ),
         )
         resume_last_pos = checkpoint.last_pos
     else:
@@ -142,7 +148,7 @@ def analyze_vcf(
 
                 chrom = get_nfields(line, 1)[0]
                 if not mode_set:
-                    writer.set_x_mode(is_x_chrom(chrom))
+                    writer.set_chrom_mode(chrom_mode_for(chrom))
                     mode_set = True
 
                 if multiallelic:
@@ -301,6 +307,22 @@ def _process_allele(
             sample_fields,
             sample_header,
             female_trios,
+            male_trios,
+            writer,
+            clean_ad=clean_ad,
+        )
+        return
+
+    if writer.y_mode:
+        _process_y_allele(
+            chrom,
+            pos,
+            ref,
+            alt,
+            variant_key,
+            alt_index,
+            sample_fields,
+            sample_header,
             male_trios,
             writer,
             clean_ad=clean_ad,
@@ -509,6 +531,68 @@ def _process_male_nonpar_pairs(
         pid = sample_header[child_idx]
         record: HitRecord = (mother_gt, child_gt, child_gq)
         if mac > 0:
+            inherited_hits[pid] = record
+        else:
+            bad_hits[pid] = record
+
+    if inherited_hits:
+        writer.write_inherited(
+            chrom, pos, ref, alt, variant_key, inherited_hits, bucket=bucket
+        )
+    if bad_hits:
+        writer.write_mendelian_bad(
+            chrom, pos, ref, alt, bad_hits, bucket=bucket
+        )
+
+
+def _process_y_allele(
+    chrom: str,
+    pos: str,
+    ref: str,
+    alt: str,
+    variant_key: str,
+    alt_index: int,
+    sample_fields: list[str],
+    sample_header: list[str],
+    male_trios: list[tuple[int, int, int]],
+    writer: ResultWriter,
+    *,
+    clean_ad: bool = False,
+) -> None:
+    """Classify chrY sites using father-son pairs with haploid QC."""
+    fathers_cache: dict[int, list[object]] = {}
+    inherited_hits: dict[str, HitRecord] = {}
+    bad_hits: dict[str, HitRecord] = {}
+    bucket = X_BUCKET_MALE_NONPAR
+
+    for child_idx, _mother_idx, father_idx in male_trios:
+        ac, child_gt, child_gq = get_good_site(
+            sample_fields[child_idx],
+            alt_index,
+            clean_ad=clean_ad,
+            haploid=True,
+        )
+        if ac <= 0:
+            continue
+
+        if father_idx in fathers_cache:
+            fac, father_gt, father_gq = fathers_cache[father_idx]
+        else:
+            fac, father_gt, father_gq = get_good_site(
+                sample_fields[father_idx],
+                alt_index,
+                clean_ad=clean_ad,
+                haploid=True,
+            )
+            fathers_cache[father_idx] = [fac, father_gt, father_gq]
+
+        # Father failed haploid QC.
+        if fac < 0:
+            continue
+
+        pid = sample_header[child_idx]
+        record: HitRecord = (father_gt, child_gt, child_gq)
+        if fac > 0:
             inherited_hits[pid] = record
         else:
             bad_hits[pid] = record

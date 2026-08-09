@@ -13,7 +13,13 @@ from inherited.checkpoint import (
     write_json_atomic,
 )
 from inherited.constants import DEFAULT_BLOCK_SIZE, DEFAULT_SEGMENT_SIZE
-from inherited.xchrom import X_BUCKETS
+from inherited.xchrom import (
+    CHROM_MODE_AUTOSOMAL,
+    CHROM_MODE_X,
+    CHROM_MODE_Y,
+    X_BUCKETS,
+    Y_BUCKETS,
+)
 
 DETAIL_DELTAS_FILENAME = "cumulative_detail_deltas.jsonl"
 
@@ -175,7 +181,7 @@ class ResultWriter:
     block_size: int = DEFAULT_BLOCK_SIZE
     segment_size: int = DEFAULT_SEGMENT_SIZE
     short_format: bool = True
-    x_mode: bool = False
+    chrom_mode: str = CHROM_MODE_AUTOSOMAL
     cumulative: CumulativeStats = field(default_factory=CumulativeStats)
     segment_index: int = 0
     last_chrom: str = ""
@@ -197,9 +203,7 @@ class ResultWriter:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         if not self.resume_mode:
             self._detail_deltas_path().write_text("", encoding="utf-8")
-        if self.x_mode:
-            for bucket in X_BUCKETS:
-                self.bucket_stats.setdefault(bucket, BucketStats())
+        self._init_bucket_stats()
         if self.resume_mode:
             self._open_segment_writers()
             self._writers_ready = True
@@ -213,14 +217,14 @@ class ResultWriter:
         block_size: int = DEFAULT_BLOCK_SIZE,
         segment_size: int = DEFAULT_SEGMENT_SIZE,
         short_format: bool = True,
-        x_mode: bool = False,
+        chrom_mode: str = CHROM_MODE_AUTOSOMAL,
     ) -> ResultWriter:
         writer = cls(
             output_dir=output_dir,
             block_size=block_size,
             segment_size=segment_size,
             short_format=short_format,
-            x_mode=x_mode,
+            chrom_mode=chrom_mode,
             cumulative=checkpoint.cumulative,
             segment_index=checkpoint.segment_index + 1,
             last_chrom=checkpoint.chrom,
@@ -233,24 +237,49 @@ class ResultWriter:
             writer._write_detail_baseline(checkpoint.segment_index)
         return writer
 
-    def set_x_mode(self, enabled: bool) -> None:
-        """Set autosomal vs chrX output layout before the first write."""
+    def _init_bucket_stats(self) -> None:
+        for bucket in self._bucket_names():
+            if bucket:
+                self.bucket_stats.setdefault(bucket, BucketStats())
+
+    def set_chrom_mode(self, mode: str) -> None:
+        """Set autosomal / chrX / chrY output layout before the first write."""
+        if mode not in (CHROM_MODE_AUTOSOMAL, CHROM_MODE_X, CHROM_MODE_Y):
+            raise ValueError(f"Unknown chromosome mode: {mode!r}")
         if self._writers_ready:
-            if enabled != self.x_mode:
+            if mode != self.chrom_mode:
                 raise ValueError("Cannot change chromosome mode after writers are open")
             return
-        self.x_mode = enabled
-        if enabled:
-            for bucket in X_BUCKETS:
-                self.bucket_stats.setdefault(bucket, BucketStats())
+        self.chrom_mode = mode
+        self._init_bucket_stats()
         self._open_segment_writers()
         self._writers_ready = True
 
+    def set_x_mode(self, enabled: bool) -> None:
+        """Backward-compatible wrapper around :meth:`set_chrom_mode`."""
+        self.set_chrom_mode(CHROM_MODE_X if enabled else CHROM_MODE_AUTOSOMAL)
+
+    @property
+    def uses_named_buckets(self) -> bool:
+        return self.chrom_mode in (CHROM_MODE_X, CHROM_MODE_Y)
+
+    @property
+    def x_mode(self) -> bool:
+        return self.chrom_mode == CHROM_MODE_X
+
+    @property
+    def y_mode(self) -> bool:
+        return self.chrom_mode == CHROM_MODE_Y
+
     def _bucket_names(self) -> tuple[str, ...]:
-        return X_BUCKETS if self.x_mode else ("",)
+        if self.chrom_mode == CHROM_MODE_X:
+            return X_BUCKETS
+        if self.chrom_mode == CHROM_MODE_Y:
+            return Y_BUCKETS
+        return ("",)
 
     def _result_path(self, kind: str, bucket: str, segment_index: int) -> Path:
-        if self.x_mode:
+        if self.uses_named_buckets:
             stem = f"{kind}_{bucket}"
         else:
             stem = kind
@@ -259,7 +288,7 @@ class ResultWriter:
         return self.output_dir / f"{stem}_{segment_index:05d}.tsv"
 
     def _inherited_per_variant_path(self, bucket: str, segment_index: int) -> Path:
-        if self.x_mode:
+        if self.uses_named_buckets:
             stem = f"inherited_per_variant_{bucket}"
         else:
             stem = "inherited_per_variant"
@@ -314,7 +343,7 @@ class ResultWriter:
         if not hits:
             return
         if not self._writers_ready:
-            self.set_x_mode(False)
+            self.set_chrom_mode(CHROM_MODE_AUTOSOMAL)
         if bucket not in self._inherited:
             raise KeyError(f"Unknown output bucket: {bucket!r}")
         self._inherited[bucket].append(
@@ -362,7 +391,7 @@ class ResultWriter:
         if not hits:
             return
         if not self._writers_ready:
-            self.set_x_mode(False)
+            self.set_chrom_mode(CHROM_MODE_AUTOSOMAL)
         if bucket not in self._mendelian_bad:
             raise KeyError(f"Unknown output bucket: {bucket!r}")
         self._mendelian_bad[bucket].append(
@@ -434,7 +463,7 @@ class ResultWriter:
 
     def finalize(self, *, completed: bool = True) -> None:
         if not self._writers_ready:
-            self.set_x_mode(self.x_mode)
+            self.set_chrom_mode(self.chrom_mode)
         self._append_detail_delta()
         self._write_cumulative_stats()
         if self.segment_size > 0 or completed:
@@ -458,9 +487,9 @@ class ResultWriter:
             "last_chrom": self.last_chrom,
             "last_pos": self.last_pos,
             "segment_index": self.segment_index,
-            "x_mode": self.x_mode,
+            "chrom_mode": self.chrom_mode,
         }
-        if self.x_mode:
+        if self.uses_named_buckets:
             payload["buckets"] = {
                 name: {
                     "inherited_entries": stats.inherited_entries,
@@ -490,7 +519,7 @@ class ResultWriter:
             "inherited_per_person": self.detail_inherited_per_person,
             "mendelian_bad_per_gt": self.detail_mendelian_bad_per_gt,
         }
-        if self.x_mode:
+        if self.uses_named_buckets:
             record["buckets"] = {
                 name: {
                     "inherited_entries": stats.detail_inherited_entries,
@@ -598,7 +627,7 @@ class ResultWriter:
 
     def _merge_inherited_per_variant_files(self) -> None:
         for bucket in self._bucket_names():
-            if self.x_mode:
+            if self.uses_named_buckets:
                 output_name = f"inherited_per_variant_{bucket}.json"
                 pattern = f"inherited_per_variant_{bucket}_seg*.json"
             else:
@@ -629,7 +658,7 @@ class ResultWriter:
             merged.path.replace(output_path)
 
     def save_summary_files(self) -> None:
-        if self.x_mode:
+        if self.uses_named_buckets:
             for bucket, stats in self.bucket_stats.items():
                 write_json_atomic(
                     self.output_dir / f"inherited_per_person_{bucket}.json",
@@ -667,7 +696,7 @@ class ResultWriter:
                 "inherited_variants": self.cumulative.inherited_variants,
                 "mendelian_bad_entries": self.cumulative.mendelian_bad_entries,
                 "mendelian_bad_variants": self.cumulative.mendelian_bad_variants,
-                "x_mode": self.x_mode,
+                "chrom_mode": self.chrom_mode,
             },
         )
 

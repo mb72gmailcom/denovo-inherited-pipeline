@@ -1,0 +1,11 @@
+##fileformat=VCFv4.2
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">
+##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allelic depths">
+##FORMAT=<ID=SB,Number=4,Type=Integer,Description="Strand bias">
+##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype quality">
+##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Phred likelihoods">
+##FORMAT=<ID=RNC,Number=1,Type=String,Description="Unused">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	girl1	boy1	fa1	ma1	unknown1	fa2	ma2
+chrY	100000	var_y_inh	A	G	.	.	.	GT:DP:AD:SB:GQ:PL:RNC	0/0:30:30,0:0,0,0,0:30:0,30,30:.	1/1:10:1,9:0,0,0,0:30:0,30,30:.	1/1:10:1,9:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.	1/1:10:1,9:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.
+chrY	200000	var_y_bad	A	G	.	.	.	GT:DP:AD:SB:GQ:PL:RNC	0/0:30:30,0:0,0,0,0:30:0,30,30:.	1/1:10:1,9:0,0,0,0:30:0,30,30:.	0/0:10:10,0:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.	1/1:10:1,9:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.

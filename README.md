@@ -97,6 +97,16 @@ VCFs are expected to be split per chromosome. Contigs `X` and `chrX` use sex-awa
 - Male PAR1 / PAR2 (hg38 closed intervals `[10001, 2781479]` and `[155701383, 156030895]`): same diploid trio logic as autosomes
 - Male nonPAR: mother–son pairs only (father ignored on chrX); child uses haploid QC (`DP≥5`, `AB≥0.85`, `GQ≥20`); mother uses diploid QC; inherited if `ac>0` and `mac>0`; mendelian_bad if `ac>0` and `mac==0`
 
+## Chromosome Y
+
+Contigs `Y` and `chrY` are treated as nonPAR only. Analysis loops over male children and father–son pairs:
+
+- Child and father both use haploid QC (`DP≥5`, `AB≥0.85`, `GQ≥20`)
+- Inherited if `ac>0` and `fac>0`; mendelian_bad if `ac>0` and `fac==0`
+- Father haploid QC failure skips the pair
+- Output uses only the `male_nonPar` bucket (no empty PAR/female files)
+- Full format: `child_id=father_gt|child_gt|child_gq`
+
 ## Output
 
 Autosomal output directory contains:
@@ -135,7 +145,9 @@ Use `--no-short-format` for full genotype output:
 22      3000 .   A   G    child1=0/1|0/0|0/1|30
 ```
 
-Male nonPAR full format omits the father genotype: `child_id=mother_gt|child_gt|child_gq`.
+Male nonPAR chrX full format omits the father genotype: `child_id=mother_gt|child_gt|child_gq`.
+
+Male nonPAR chrY full format omits the mother genotype: `child_id=father_gt|child_gt|child_gq`.
 
 Use `--block-size` (default `10000`) for in-memory buffer flushes within a segment.
 

@@ -184,3 +184,32 @@ def test_analyze_chrx_splits_sex_and_region_outputs(tmp_path):
     assert (out / "inherited_per_person_females.json").is_file()
     assert (out / "inherited_per_person_male_nonPar.json").is_file()
     assert (out / "stats_male_par1.json").is_file()
+
+
+def test_analyze_chry_uses_only_male_nonpar_bucket(tmp_path):
+    stats = analyze_vcf(
+        vcf_path=FIXTURES / "tiny_y.vcf",
+        af_json_path=FIXTURES / "tiny_y_af.json",
+        family_file=FIXTURES / "families_x.tsv",
+        output_dir=tmp_path / "out",
+        segment_size=0,
+        block_size=1,
+        short_format=False,
+    )
+
+    out = tmp_path / "out"
+    inherited = read_result_tsv(out / "inherited_male_nonPar.tsv", short_format=False)
+    bad = read_result_tsv(out / "mendelian_bad_male_nonPar.tsv", short_format=False)
+
+    assert len(inherited) == 1 and inherited[0][1] == "100000"
+    assert inherited[0][4] == {"boy1": ("1/1", "1/1", "30")}
+    assert len(bad) == 1 and bad[0][1] == "200000"
+    assert bad[0][4] == {"boy1": ("0/0", "1/1", "30")}
+
+    assert not (out / "inherited_females.tsv").exists()
+    assert not (out / "inherited_male_par1.tsv").exists()
+    assert not (out / "inherited_male_par2.tsv").exists()
+    assert (out / "inherited_per_person_male_nonPar.json").is_file()
+    assert (out / "stats_male_nonPar.json").is_file()
+    assert stats.inherited_variants == 1
+    assert stats.mendelian_bad_variants == 1

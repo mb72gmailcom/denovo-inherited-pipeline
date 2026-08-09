@@ -18,9 +18,28 @@ X_BUCKETS = (
     X_BUCKET_MALE_PAR2,
 )
 
+# chrY has only nonPAR; keep X-style labeling but open this single bucket.
+Y_BUCKETS = (X_BUCKET_MALE_NONPAR,)
+
+CHROM_MODE_AUTOSOMAL = "autosomal"
+CHROM_MODE_X = "x"
+CHROM_MODE_Y = "y"
+
 
 def is_x_chrom(chrom: str) -> bool:
     return chrom in ("X", "chrX")
+
+
+def is_y_chrom(chrom: str) -> bool:
+    return chrom in ("Y", "chrY")
+
+
+def chrom_mode_for(chrom: str) -> str:
+    if is_x_chrom(chrom):
+        return CHROM_MODE_X
+    if is_y_chrom(chrom):
+        return CHROM_MODE_Y
+    return CHROM_MODE_AUTOSOMAL
 
 
 def x_region(pos: int) -> str:
