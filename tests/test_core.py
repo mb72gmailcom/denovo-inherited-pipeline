@@ -5,8 +5,9 @@ import pytest
 from inherited.af import is_rare, load_af_json
 from inherited.analyze import get_position
 from inherited.classify import classify_trio
-from inherited.families import load_family_relations
+from inherited.families import load_family_relations, normalize_sex
 from inherited.genotype import get_good_site, is_good
+from inherited.xchrom import is_x_chrom, male_x_bucket, x_region
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -41,6 +42,33 @@ def test_load_family_relations():
     assert rel.trio_cl["child1"] == ("ma1", "fa1")
     assert rel.trios_ids == [["child1", "fa1", "ma1"]]
     assert rel.family_size["fam1"] == 3
+    assert "child1" in rel.female_children
+    assert not rel.male_children
+
+
+def test_load_family_relations_splits_sex_and_skips_unknown():
+    rel = load_family_relations(FIXTURES / "families_x.tsv")
+    assert rel.female_children == {"girl1"}
+    assert rel.male_children == {"boy1"}
+    assert "unknown1" not in rel.trio_cl
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("1", "male"),
+        ("Male", "male"),
+        ("male", "male"),
+        ("2", "female"),
+        ("Female", "female"),
+        ("female", "female"),
+        (".", None),
+        ("", None),
+        ("other", None),
+    ],
+)
+def test_normalize_sex(value, expected):
+    assert normalize_sex(value) is expected
 
 
 def test_is_good_rejects_low_dp():
@@ -50,6 +78,10 @@ def test_is_good_rejects_low_dp():
 def test_is_good_rejects_missing_ad():
     assert not is_good("0/1", "30", ".", "0,0,0,0", "30", 1)
     assert not is_good("0/1", "30", "15,.", "0,0,0,0", "30", 1)
+
+
+def test_is_good_allows_homozygous_reference():
+    assert is_good("0/0", "30", "30,0", "0,0,0,0", "30", 1)
 
 
 def test_is_good_multiallelic_cleans_missing_ad_as_zero():
@@ -66,6 +98,18 @@ def test_get_good_site_handles_missing_ad():
     sample = "0/1:30:.:0,0,0,0:30:0,30,30:."
     ac, gt, gq = get_good_site(sample, 1)
     assert ac == -1
+
+
+def test_get_good_site_homozygous_reference_returns_zero():
+    sample = "0/0:30:30,0:0,0,0,0:30:0,30,30:."
+    assert get_good_site(sample, 1) == (0, "0/0", "30")
+
+
+def test_get_good_site_haploid_thresholds():
+    low_ab = "1/1:10:5,5:0,0,0,0:30:0,30,30:."
+    assert get_good_site(low_ab, 1, haploid=True) == (-1, ".", "0")
+    high_ab = "1/1:10:1,9:0,0,0,0:30:0,30,30:."
+    assert get_good_site(high_ab, 1, haploid=True) == (2, "1/1", "30")
 
 
 def test_get_good_site_multiallelic_clean_ad():
@@ -104,3 +148,16 @@ def test_get_good_site_returns_negative_one_when_not_good():
 )
 def test_classify_trio(ac, mac, fac, expected):
     assert classify_trio(ac, mac, fac) is expected
+
+
+def test_x_region_and_buckets():
+    assert is_x_chrom("X")
+    assert is_x_chrom("chrX")
+    assert not is_x_chrom("22")
+    assert x_region(10001) == "par1"
+    assert x_region(2781479) == "par1"
+    assert x_region(2781480) == "nonPar"
+    assert x_region(155701383) == "par2"
+    assert male_x_bucket(15000) == "male_par1"
+    assert male_x_bucket(5_000_000) == "male_nonPar"
+    assert male_x_bucket(155800000) == "male_par2"

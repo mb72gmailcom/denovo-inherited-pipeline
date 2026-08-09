@@ -1,0 +1,13 @@
+##fileformat=VCFv4.2
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">
+##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allelic depths">
+##FORMAT=<ID=SB,Number=4,Type=Integer,Description="Strand bias">
+##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype quality">
+##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Phred likelihoods">
+##FORMAT=<ID=RNC,Number=1,Type=String,Description="Unused">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	girl1	boy1	fa1	ma1	unknown1	fa2	ma2
+chrX	15000	var_par1	A	G	.	.	.	GT:DP:AD:SB:GQ:PL:RNC	0/1:30:15,15:0,0,0,0:30:0,30,30:.	0/1:30:15,15:0,0,0,0:30:0,30,30:.	0/1:30:15,15:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.	0/1:30:15,15:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.
+chrX	5000000	var_nonpar_inh	A	G	.	.	.	GT:DP:AD:SB:GQ:PL:RNC	0/1:30:15,15:0,0,0,0:30:0,30,30:.	1/1:10:1,9:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.	0/1:30:15,15:0,0,0,0:30:0,30,30:.	0/1:30:15,15:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.
+chrX	5000100	var_nonpar_bad	A	G	.	.	.	GT:DP:AD:SB:GQ:PL:RNC	0/0:30:30,0:0,0,0,0:30:0,30,30:.	1/1:10:1,9:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.	0/1:30:15,15:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.
+chrX	155800000	var_par2	A	G	.	.	.	GT:DP:AD:SB:GQ:PL:RNC	0/1:30:15,15:0,0,0,0:30:0,30,30:.	0/1:30:15,15:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.	0/1:30:15,15:0,0,0,0:30:0,30,30:.	0/1:30:15,15:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.	0/0:30:30,0:0,0,0,0:30:0,30,30:.

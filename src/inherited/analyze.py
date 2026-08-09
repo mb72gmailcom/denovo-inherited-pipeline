@@ -22,10 +22,16 @@ from inherited.constants import (
     DEFAULT_SEGMENT_SIZE,
 )
 from inherited.debug import log_memory_if_due
-from inherited.families import build_trio_indices, load_family_relations
+from inherited.families import build_sexed_trio_indices, load_family_relations
 from inherited.genotype import get_good_site
-from inherited.output import ResultWriter
+from inherited.output import HitRecord, ResultWriter
 from inherited.repeats import RepeatIntervalFilter
+from inherited.xchrom import (
+    X_BUCKET_FEMALES,
+    is_x_chrom,
+    male_x_bucket,
+    x_region,
+)
 
 
 def get_nfields(line: str, n: int) -> list[str]:
@@ -92,6 +98,7 @@ def analyze_vcf(
             block_size=block_size,
             segment_size=segment_size,
             short_format=short_format,
+            x_mode=is_x_chrom(checkpoint.chrom) if checkpoint.chrom else False,
         )
         resume_last_pos = checkpoint.last_pos
     else:
@@ -112,15 +119,19 @@ def analyze_vcf(
     try:
         opener = gzip.open if str(vcf_path).endswith(".gz") else open
         with opener(vcf_path, "rt", encoding="utf-8") as handle:
-            trios_ind: list[tuple[int, int, int]] = []
+            female_trios: list[tuple[int, int, int]] = []
+            male_trios: list[tuple[int, int, int]] = []
             sample_header: list[str] = []
+            mode_set = False
 
             for line in handle:
                 if line.startswith("##"):
                     continue
                 if line.startswith("#CHROM"):
                     sample_header = line.strip().split("\t")[9:]
-                    _, trios_ind = build_trio_indices(sample_header, relations.trio_cl)
+                    female_trios, male_trios = build_sexed_trio_indices(
+                        sample_header, relations
+                    )
                     continue
 
                 pos = get_position(line)
@@ -129,12 +140,18 @@ def analyze_vcf(
                 if repeat_filter is not None and repeat_filter.in_repeat(pos):
                     continue
 
+                chrom = get_nfields(line, 1)[0]
+                if not mode_set:
+                    writer.set_x_mode(is_x_chrom(chrom))
+                    mode_set = True
+
                 if multiallelic:
                     _process_multiallelic_line(
                         line,
                         af_table,
                         af_threshold,
-                        trios_ind,
+                        female_trios,
+                        male_trios,
                         sample_header,
                         writer,
                     )
@@ -143,7 +160,8 @@ def analyze_vcf(
                         line,
                         af_table,
                         af_threshold,
-                        trios_ind,
+                        female_trios,
+                        male_trios,
                         sample_header,
                         writer,
                     )
@@ -177,7 +195,8 @@ def _process_multiallelic_line(
     line: str,
     af_table: dict[str, float],
     af_threshold: float,
-    trios_ind: list[tuple[int, int, int]],
+    female_trios: list[tuple[int, int, int]],
+    male_trios: list[tuple[int, int, int]],
     sample_header: list[str],
     writer: ResultWriter,
 ) -> None:
@@ -207,7 +226,7 @@ def _process_multiallelic_line(
     sample_fields = line.rstrip().split("\t")[9:]
     for alt_index, key, alt in alleles_to_process:
         writer.cumulative.alleles_tested += 1
-        _process_trios_for_allele(
+        _process_allele(
             chrom,
             pos,
             ref,
@@ -216,7 +235,8 @@ def _process_multiallelic_line(
             alt_index,
             sample_fields,
             sample_header,
-            trios_ind,
+            female_trios,
+            male_trios,
             writer,
             clean_ad=True,
         )
@@ -226,7 +246,8 @@ def _process_biallelic_line(
     line: str,
     af_table: dict[str, float],
     af_threshold: float,
-    trios_ind: list[tuple[int, int, int]],
+    female_trios: list[tuple[int, int, int]],
+    male_trios: list[tuple[int, int, int]],
     sample_header: list[str],
     writer: ResultWriter,
 ) -> None:
@@ -239,7 +260,7 @@ def _process_biallelic_line(
     writer.cumulative.variants_seen += 1
     writer.cumulative.alleles_tested += 1
     sample_fields = line.rstrip().split("\t")[9:]
-    _process_trios_for_allele(
+    _process_allele(
         chrom,
         pos,
         ref,
@@ -248,8 +269,121 @@ def _process_biallelic_line(
         1,
         sample_fields,
         sample_header,
-        trios_ind,
+        female_trios,
+        male_trios,
         writer,
+    )
+
+
+def _process_allele(
+    chrom: str,
+    pos: str,
+    ref: str,
+    alt: str,
+    variant_key: str,
+    alt_index: int,
+    sample_fields: list[str],
+    sample_header: list[str],
+    female_trios: list[tuple[int, int, int]],
+    male_trios: list[tuple[int, int, int]],
+    writer: ResultWriter,
+    *,
+    clean_ad: bool = False,
+) -> None:
+    if writer.x_mode:
+        _process_x_allele(
+            chrom,
+            pos,
+            ref,
+            alt,
+            variant_key,
+            alt_index,
+            sample_fields,
+            sample_header,
+            female_trios,
+            male_trios,
+            writer,
+            clean_ad=clean_ad,
+        )
+        return
+
+    _process_trios_for_allele(
+        chrom,
+        pos,
+        ref,
+        alt,
+        variant_key,
+        alt_index,
+        sample_fields,
+        sample_header,
+        female_trios + male_trios,
+        writer,
+        clean_ad=clean_ad,
+        bucket="",
+    )
+
+
+def _process_x_allele(
+    chrom: str,
+    pos: str,
+    ref: str,
+    alt: str,
+    variant_key: str,
+    alt_index: int,
+    sample_fields: list[str],
+    sample_header: list[str],
+    female_trios: list[tuple[int, int, int]],
+    male_trios: list[tuple[int, int, int]],
+    writer: ResultWriter,
+    *,
+    clean_ad: bool = False,
+) -> None:
+    _process_trios_for_allele(
+        chrom,
+        pos,
+        ref,
+        alt,
+        variant_key,
+        alt_index,
+        sample_fields,
+        sample_header,
+        female_trios,
+        writer,
+        clean_ad=clean_ad,
+        bucket=X_BUCKET_FEMALES,
+    )
+
+    pos_int = int(pos)
+    region = x_region(pos_int)
+    if region == "nonPar":
+        _process_male_nonpar_pairs(
+            chrom,
+            pos,
+            ref,
+            alt,
+            variant_key,
+            alt_index,
+            sample_fields,
+            sample_header,
+            male_trios,
+            writer,
+            clean_ad=clean_ad,
+        )
+        return
+
+    _process_trios_for_allele(
+        chrom,
+        pos,
+        ref,
+        alt,
+        variant_key,
+        alt_index,
+        sample_fields,
+        sample_header,
+        male_trios,
+        writer,
+        clean_ad=clean_ad,
+        bucket=male_x_bucket(pos_int),
     )
 
 
@@ -266,14 +400,17 @@ def _process_trios_for_allele(
     writer: ResultWriter,
     *,
     clean_ad: bool = False,
+    bucket: str = "",
 ) -> None:
     parents_cache: dict[int, list[object]] = {}
-    inherited_hits: dict[str, tuple[str, str, str, str]] = {}
-    bad_hits: dict[str, tuple[str, str, str, str]] = {}
+    inherited_hits: dict[str, HitRecord] = {}
+    bad_hits: dict[str, HitRecord] = {}
 
     for child_idx, mother_idx, father_idx in trios_ind:
         child_sample = sample_fields[child_idx]
-        ac, child_gt, child_gq = get_good_site(child_sample, alt_index, clean_ad=clean_ad)
+        ac, child_gt, child_gq = get_good_site(
+            child_sample, alt_index, clean_ad=clean_ad
+        )
         if ac <= 0:
             continue
 
@@ -294,33 +431,96 @@ def _process_trios_for_allele(
             parents_cache[father_idx] = [fac, father_gt, father_gq]
 
         pid = sample_header[child_idx]
-        bucket: str | None = None
-        record: tuple[str, str, str, str]
+        bucket_name: str | None = None
+        record: HitRecord
 
         if mac > 0 and fac > 0:
             if mac == 2 and fac == 2 and ac < 2:
-                bucket = "mendelian_bad"
+                bucket_name = "mendelian_bad"
             else:
-                bucket = "inherited"
+                bucket_name = "inherited"
             record = (mother_gt, father_gt, child_gt, child_gq)
         elif mac > 0:
-            bucket = "mendelian_bad" if ac == 2 else "inherited"
+            bucket_name = "mendelian_bad" if ac == 2 else "inherited"
             record = (mother_gt, "0/0", child_gt, child_gq)
         elif fac > 0:
-            bucket = "mendelian_bad" if ac == 2 else "inherited"
+            bucket_name = "mendelian_bad" if ac == 2 else "inherited"
             record = ("0/0", father_gt, child_gt, child_gq)
         else:
             continue
 
-        if bucket == "inherited":
+        if bucket_name == "inherited":
             inherited_hits[pid] = record
         else:
             bad_hits[pid] = record
 
     if inherited_hits:
-        writer.write_inherited(chrom, pos, ref, alt, variant_key, inherited_hits)
+        writer.write_inherited(
+            chrom, pos, ref, alt, variant_key, inherited_hits, bucket=bucket
+        )
     if bad_hits:
-        writer.write_mendelian_bad(chrom, pos, ref, alt, bad_hits)
+        writer.write_mendelian_bad(
+            chrom, pos, ref, alt, bad_hits, bucket=bucket
+        )
+
+
+def _process_male_nonpar_pairs(
+    chrom: str,
+    pos: str,
+    ref: str,
+    alt: str,
+    variant_key: str,
+    alt_index: int,
+    sample_fields: list[str],
+    sample_header: list[str],
+    male_trios: list[tuple[int, int, int]],
+    writer: ResultWriter,
+    *,
+    clean_ad: bool = False,
+) -> None:
+    """Classify male nonPAR chrX sites using mother-son pairs only."""
+    mothers_cache: dict[int, list[object]] = {}
+    inherited_hits: dict[str, HitRecord] = {}
+    bad_hits: dict[str, HitRecord] = {}
+    bucket = male_x_bucket(int(pos))
+
+    for child_idx, mother_idx, _father_idx in male_trios:
+        ac, child_gt, child_gq = get_good_site(
+            sample_fields[child_idx],
+            alt_index,
+            clean_ad=clean_ad,
+            haploid=True,
+        )
+        if ac <= 0:
+            continue
+
+        if mother_idx in mothers_cache:
+            mac, mother_gt, mother_gq = mothers_cache[mother_idx]
+        else:
+            mac, mother_gt, mother_gq = get_good_site(
+                sample_fields[mother_idx], alt_index, clean_ad=clean_ad
+            )
+            mothers_cache[mother_idx] = [mac, mother_gt, mother_gq]
+
+        # Mother failed diploid QC.
+        if mac < 0:
+            continue
+
+        pid = sample_header[child_idx]
+        record: HitRecord = (mother_gt, child_gt, child_gq)
+        if mac > 0:
+            inherited_hits[pid] = record
+        else:
+            bad_hits[pid] = record
+
+    if inherited_hits:
+        writer.write_inherited(
+            chrom, pos, ref, alt, variant_key, inherited_hits, bucket=bucket
+        )
+    if bad_hits:
+        writer.write_mendelian_bad(
+            chrom, pos, ref, alt, bad_hits, bucket=bucket
+        )
 
 
 def save_run_params(

@@ -141,3 +141,46 @@ def test_serialize_payload_short_and_full():
     hits = {"child1": ("0/0", "0/1", "0/1", "30")}
     assert serialize_payload(hits, short_format=True) == "child1"
     assert serialize_payload(hits, short_format=False) == "child1=0/0|0/1|0/1|30"
+    pair_hits = {"boy1": ("0/1", "1/1", "30")}
+    assert serialize_payload(pair_hits, short_format=False) == "boy1=0/1|1/1|30"
+
+
+def test_analyze_chrx_splits_sex_and_region_outputs(tmp_path):
+    stats = analyze_vcf(
+        vcf_path=FIXTURES / "tiny_x.vcf",
+        af_json_path=FIXTURES / "tiny_x_af.json",
+        family_file=FIXTURES / "families_x.tsv",
+        output_dir=tmp_path / "out",
+        segment_size=0,
+        block_size=1,
+        short_format=False,
+    )
+
+    out = tmp_path / "out"
+    females = read_result_tsv(out / "inherited_females.tsv", short_format=False)
+    male_par1 = read_result_tsv(out / "inherited_male_par1.tsv", short_format=False)
+    male_nonpar = read_result_tsv(out / "inherited_male_nonPar.tsv", short_format=False)
+    male_nonpar_bad = read_result_tsv(
+        out / "mendelian_bad_male_nonPar.tsv", short_format=False
+    )
+    male_par2 = read_result_tsv(out / "inherited_male_par2.tsv", short_format=False)
+
+    assert {rec[1] for rec in females} == {"15000", "5000000", "155800000"}
+    assert all("girl1" in rec[4] for rec in females)
+    assert all("unknown1" not in rec[4] for rec in females)
+
+    assert len(male_par1) == 1 and male_par1[0][1] == "15000"
+    assert male_par1[0][4] == {"boy1": ("0/0", "0/1", "0/1", "30")}
+
+    assert len(male_nonpar) == 1 and male_nonpar[0][1] == "5000000"
+    assert male_nonpar[0][4] == {"boy1": ("0/1", "1/1", "30")}
+
+    assert len(male_nonpar_bad) == 1 and male_nonpar_bad[0][1] == "5000100"
+    assert male_nonpar_bad[0][4] == {"boy1": ("0/0", "1/1", "30")}
+
+    assert len(male_par2) == 1 and male_par2[0][1] == "155800000"
+    assert male_par2[0][4] == {"boy1": ("0/1", "0/0", "0/1", "30")}
+    assert stats.inherited_variants >= 1
+    assert (out / "inherited_per_person_females.json").is_file()
+    assert (out / "inherited_per_person_male_nonPar.json").is_file()
+    assert (out / "stats_male_par1.json").is_file()

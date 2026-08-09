@@ -1,0 +1,8 @@
+spid	sfid	father	mother	sex
+girl1	fam1	fa1	ma1	Female
+boy1	fam1	fa1	ma1	1
+fa1	fam1	0	0	Male
+ma1	fam1	0	0	2
+unknown1	fam2	fa2	ma2	.
+fa2	fam2	0	0	Male
+ma2	fam2	0	0	Female

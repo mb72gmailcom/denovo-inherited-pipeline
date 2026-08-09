@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from inherited.checkpoint import (
     STATS_CUMULATIVE_FILENAME,
@@ -12,39 +13,51 @@ from inherited.checkpoint import (
     write_json_atomic,
 )
 from inherited.constants import DEFAULT_BLOCK_SIZE, DEFAULT_SEGMENT_SIZE
+from inherited.xchrom import X_BUCKETS
 
 DETAIL_DELTAS_FILENAME = "cumulative_detail_deltas.jsonl"
 
+HitRecord = tuple[str, ...]
 
-def serialize_patient_ids(hits: dict[str, tuple[str, str, str, str]]) -> str:
+
+def serialize_patient_ids(hits: dict[str, HitRecord]) -> str:
     """Serialize affected patient IDs only."""
     return ";".join(sorted(hits))
 
 
-def serialize_trio_calls(
-    hits: dict[str, tuple[str, str, str, str]],
-) -> str:
-    """Serialize {person_id: (mGT, fGT, cGT, cGQ)} to a single column string."""
+def serialize_trio_calls(hits: dict[str, HitRecord]) -> str:
+    """Serialize genotype payloads for one or more children.
+
+    Trio records are ``(mGT, fGT, cGT, cGQ)``.
+    Mother-child pair records (male nonPAR) are ``(mGT, cGT, cGQ)``.
+    """
     parts = []
     for person_id in sorted(hits):
-        mother_gt, father_gt, child_gt, child_gq = hits[person_id]
-        parts.append(f"{person_id}={mother_gt}|{father_gt}|{child_gt}|{child_gq}")
+        record = hits[person_id]
+        if len(record) == 3:
+            mother_gt, child_gt, child_gq = record
+            parts.append(f"{person_id}={mother_gt}|{child_gt}|{child_gq}")
+        else:
+            mother_gt, father_gt, child_gt, child_gq = record
+            parts.append(
+                f"{person_id}={mother_gt}|{father_gt}|{child_gt}|{child_gq}"
+            )
     return ";".join(parts)
 
 
-def parse_trio_calls(payload: str) -> dict[str, tuple[str, str, str, str]]:
-    hits: dict[str, tuple[str, str, str, str]] = {}
+def parse_trio_calls(payload: str) -> dict[str, HitRecord]:
+    hits: dict[str, HitRecord] = {}
     if not payload:
         return hits
     for part in payload.split(";"):
         person_id, genotypes = part.split("=", 1)
-        mother_gt, father_gt, child_gt, child_gq = genotypes.split("|")
-        hits[person_id] = (mother_gt, father_gt, child_gt, child_gq)
+        fields = genotypes.split("|")
+        hits[person_id] = tuple(fields)
     return hits
 
 
 def serialize_payload(
-    hits: dict[str, tuple[str, str, str, str]],
+    hits: dict[str, HitRecord],
     *,
     short_format: bool,
 ) -> str:
@@ -57,6 +70,14 @@ def parse_patient_ids(payload: str) -> list[str]:
     if not payload:
         return []
     return payload.split(";")
+
+
+def _gt_key(record: HitRecord) -> str:
+    if len(record) == 3:
+        mother_gt, child_gt, _child_gq = record
+        return f"{mother_gt}:{child_gt}"
+    mother_gt, father_gt, child_gt, _child_gq = record
+    return f"{mother_gt}:{father_gt}:{child_gt}"
 
 
 class JsonObjectStreamWriter:
@@ -133,11 +154,28 @@ class BlockWriter:
 
 
 @dataclass
+class BucketStats:
+    inherited_entries: int = 0
+    inherited_variants: int = 0
+    mendelian_bad_entries: int = 0
+    mendelian_bad_variants: int = 0
+    inherited_per_person: dict[str, int] = field(default_factory=dict)
+    mendelian_bad_per_gt: dict[str, int] = field(default_factory=dict)
+    detail_inherited_entries: int = 0
+    detail_inherited_variants: int = 0
+    detail_mendelian_bad_entries: int = 0
+    detail_mendelian_bad_variants: int = 0
+    detail_inherited_per_person: dict[str, int] = field(default_factory=dict)
+    detail_mendelian_bad_per_gt: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
 class ResultWriter:
     output_dir: Path
     block_size: int = DEFAULT_BLOCK_SIZE
     segment_size: int = DEFAULT_SEGMENT_SIZE
     short_format: bool = True
+    x_mode: bool = False
     cumulative: CumulativeStats = field(default_factory=CumulativeStats)
     segment_index: int = 0
     last_chrom: str = ""
@@ -146,18 +184,25 @@ class ResultWriter:
     mendelian_bad_segment_lines: int = 0
     detail_inherited_per_person: dict[str, int] = field(default_factory=dict)
     detail_mendelian_bad_per_gt: dict[str, int] = field(default_factory=dict)
+    bucket_stats: dict[str, BucketStats] = field(default_factory=dict)
     resume_mode: bool = False
-    _inherited: BlockWriter | None = field(default=None, repr=False)
-    _mendelian_bad: BlockWriter | None = field(default=None, repr=False)
-    _inherited_per_variant: JsonObjectStreamWriter | None = field(
-        default=None, repr=False
+    _writers_ready: bool = False
+    _inherited: dict[str, BlockWriter] = field(default_factory=dict, repr=False)
+    _mendelian_bad: dict[str, BlockWriter] = field(default_factory=dict, repr=False)
+    _inherited_per_variant: dict[str, JsonObjectStreamWriter] = field(
+        default_factory=dict, repr=False
     )
 
     def __post_init__(self) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         if not self.resume_mode:
             self._detail_deltas_path().write_text("", encoding="utf-8")
-        self._open_segment_writers()
+        if self.x_mode:
+            for bucket in X_BUCKETS:
+                self.bucket_stats.setdefault(bucket, BucketStats())
+        if self.resume_mode:
+            self._open_segment_writers()
+            self._writers_ready = True
 
     @classmethod
     def from_checkpoint(
@@ -168,12 +213,14 @@ class ResultWriter:
         block_size: int = DEFAULT_BLOCK_SIZE,
         segment_size: int = DEFAULT_SEGMENT_SIZE,
         short_format: bool = True,
+        x_mode: bool = False,
     ) -> ResultWriter:
         writer = cls(
             output_dir=output_dir,
             block_size=block_size,
             segment_size=segment_size,
             short_format=short_format,
+            x_mode=x_mode,
             cumulative=checkpoint.cumulative,
             segment_index=checkpoint.segment_index + 1,
             last_chrom=checkpoint.chrom,
@@ -186,44 +233,70 @@ class ResultWriter:
             writer._write_detail_baseline(checkpoint.segment_index)
         return writer
 
-    def _inherited_path(self, segment_index: int) -> Path:
-        if self.segment_size <= 0:
-            return self.output_dir / "inherited.tsv"
-        return self.output_dir / f"inherited_{segment_index:05d}.tsv"
+    def set_x_mode(self, enabled: bool) -> None:
+        """Set autosomal vs chrX output layout before the first write."""
+        if self._writers_ready:
+            if enabled != self.x_mode:
+                raise ValueError("Cannot change chromosome mode after writers are open")
+            return
+        self.x_mode = enabled
+        if enabled:
+            for bucket in X_BUCKETS:
+                self.bucket_stats.setdefault(bucket, BucketStats())
+        self._open_segment_writers()
+        self._writers_ready = True
 
-    def _mendelian_bad_path(self, segment_index: int) -> Path:
-        if self.segment_size <= 0:
-            return self.output_dir / "mendelian_bad.tsv"
-        return self.output_dir / f"mendelian_bad_{segment_index:05d}.tsv"
+    def _bucket_names(self) -> tuple[str, ...]:
+        return X_BUCKETS if self.x_mode else ("",)
 
-    def _inherited_per_variant_path(self, segment_index: int) -> Path:
+    def _result_path(self, kind: str, bucket: str, segment_index: int) -> Path:
+        if self.x_mode:
+            stem = f"{kind}_{bucket}"
+        else:
+            stem = kind
         if self.segment_size <= 0:
-            return self.output_dir / ".inherited_per_variant.json.part"
-        return self.output_dir / f"inherited_per_variant_seg{segment_index:05d}.json"
+            return self.output_dir / f"{stem}.tsv"
+        return self.output_dir / f"{stem}_{segment_index:05d}.tsv"
+
+    def _inherited_per_variant_path(self, bucket: str, segment_index: int) -> Path:
+        if self.x_mode:
+            stem = f"inherited_per_variant_{bucket}"
+        else:
+            stem = "inherited_per_variant"
+        if self.segment_size <= 0:
+            return self.output_dir / f".{stem}.json.part"
+        return self.output_dir / f"{stem}_seg{segment_index:05d}.json"
 
     def _detail_deltas_path(self) -> Path:
         return self.output_dir / DETAIL_DELTAS_FILENAME
 
+    def _close_writers(self) -> None:
+        for writer in self._inherited.values():
+            writer.close()
+        for writer in self._mendelian_bad.values():
+            writer.close()
+        for writer in self._inherited_per_variant.values():
+            writer.close()
+        self._inherited.clear()
+        self._mendelian_bad.clear()
+        self._inherited_per_variant.clear()
+
     def _open_segment_writers(self) -> None:
-        if self._inherited is not None:
-            self._inherited.close()
-        if self._mendelian_bad is not None:
-            self._mendelian_bad.close()
-        if self._inherited_per_variant is not None:
-            self._inherited_per_variant.close()
-        self._inherited = BlockWriter(
-            self._inherited_path(self.segment_index),
-            self.block_size,
-            short_format=self.short_format,
-        )
-        self._mendelian_bad = BlockWriter(
-            self._mendelian_bad_path(self.segment_index),
-            self.block_size,
-            short_format=self.short_format,
-        )
-        self._inherited_per_variant = JsonObjectStreamWriter(
-            self._inherited_per_variant_path(self.segment_index)
-        )
+        self._close_writers()
+        for bucket in self._bucket_names():
+            self._inherited[bucket] = BlockWriter(
+                self._result_path("inherited", bucket, self.segment_index),
+                self.block_size,
+                short_format=self.short_format,
+            )
+            self._mendelian_bad[bucket] = BlockWriter(
+                self._result_path("mendelian_bad", bucket, self.segment_index),
+                self.block_size,
+                short_format=self.short_format,
+            )
+            self._inherited_per_variant[bucket] = JsonObjectStreamWriter(
+                self._inherited_per_variant_path(bucket, self.segment_index)
+            )
         self.inherited_segment_lines = 0
         self.mendelian_bad_segment_lines = 0
 
@@ -234,18 +307,31 @@ class ResultWriter:
         ref: str,
         alt: str,
         variant_key: str,
-        hits: dict[str, tuple[str, str, str, str]],
+        hits: dict[str, HitRecord],
+        *,
+        bucket: str = "",
     ) -> None:
-        if not hits or self._inherited is None:
+        if not hits:
             return
-        self._inherited.append(
+        if not self._writers_ready:
+            self.set_x_mode(False)
+        if bucket not in self._inherited:
+            raise KeyError(f"Unknown output bucket: {bucket!r}")
+        self._inherited[bucket].append(
             chrom, pos, ref, alt, serialize_payload(hits, short_format=self.short_format)
         )
         self.inherited_segment_lines += 1
         self.cumulative.inherited_variants += 1
         self.cumulative.inherited_entries += len(hits)
-        if self._inherited_per_variant is not None:
-            self._inherited_per_variant.append(variant_key, len(hits))
+        self._inherited_per_variant[bucket].append(variant_key, len(hits))
+
+        bucket_state = self.bucket_stats.get(bucket)
+        if bucket_state is not None:
+            bucket_state.inherited_variants += 1
+            bucket_state.inherited_entries += len(hits)
+            bucket_state.detail_inherited_variants += 1
+            bucket_state.detail_inherited_entries += len(hits)
+
         for person_id in hits:
             self.cumulative.inherited_per_person[person_id] = (
                 self.cumulative.inherited_per_person.get(person_id, 0) + 1
@@ -253,6 +339,13 @@ class ResultWriter:
             self.detail_inherited_per_person[person_id] = (
                 self.detail_inherited_per_person.get(person_id, 0) + 1
             )
+            if bucket_state is not None:
+                bucket_state.inherited_per_person[person_id] = (
+                    bucket_state.inherited_per_person.get(person_id, 0) + 1
+                )
+                bucket_state.detail_inherited_per_person[person_id] = (
+                    bucket_state.detail_inherited_per_person.get(person_id, 0) + 1
+                )
         self._update_position(chrom, pos)
         self._maybe_rotate_segment()
 
@@ -262,24 +355,45 @@ class ResultWriter:
         pos: str,
         ref: str,
         alt: str,
-        hits: dict[str, tuple[str, str, str, str]],
+        hits: dict[str, HitRecord],
+        *,
+        bucket: str = "",
     ) -> None:
-        if not hits or self._mendelian_bad is None:
+        if not hits:
             return
-        self._mendelian_bad.append(
+        if not self._writers_ready:
+            self.set_x_mode(False)
+        if bucket not in self._mendelian_bad:
+            raise KeyError(f"Unknown output bucket: {bucket!r}")
+        self._mendelian_bad[bucket].append(
             chrom, pos, ref, alt, serialize_payload(hits, short_format=self.short_format)
         )
         self.mendelian_bad_segment_lines += 1
         self.cumulative.mendelian_bad_variants += 1
         self.cumulative.mendelian_bad_entries += len(hits)
-        for _person_id, (mother_gt, father_gt, child_gt, _child_gq) in hits.items():
-            gt_key = f"{mother_gt}:{father_gt}:{child_gt}"
+
+        bucket_state = self.bucket_stats.get(bucket)
+        if bucket_state is not None:
+            bucket_state.mendelian_bad_variants += 1
+            bucket_state.mendelian_bad_entries += len(hits)
+            bucket_state.detail_mendelian_bad_variants += 1
+            bucket_state.detail_mendelian_bad_entries += len(hits)
+
+        for record in hits.values():
+            gt_key = _gt_key(record)
             self.cumulative.mendelian_bad_per_gt[gt_key] = (
                 self.cumulative.mendelian_bad_per_gt.get(gt_key, 0) + 1
             )
             self.detail_mendelian_bad_per_gt[gt_key] = (
                 self.detail_mendelian_bad_per_gt.get(gt_key, 0) + 1
             )
+            if bucket_state is not None:
+                bucket_state.mendelian_bad_per_gt[gt_key] = (
+                    bucket_state.mendelian_bad_per_gt.get(gt_key, 0) + 1
+                )
+                bucket_state.detail_mendelian_bad_per_gt[gt_key] = (
+                    bucket_state.detail_mendelian_bad_per_gt.get(gt_key, 0) + 1
+                )
         self._update_position(chrom, pos)
         self._maybe_rotate_segment()
 
@@ -297,16 +411,7 @@ class ResultWriter:
             self._finish_segment()
 
     def _finish_segment(self) -> None:
-        if self._inherited is not None:
-            self._inherited.close()
-            self._inherited = None
-        if self._mendelian_bad is not None:
-            self._mendelian_bad.close()
-            self._mendelian_bad = None
-        if self._inherited_per_variant is not None:
-            self._inherited_per_variant.close()
-            self._inherited_per_variant = None
-
+        self._close_writers()
         self._append_detail_delta()
         self._write_cumulative_stats()
         save_checkpoint(
@@ -320,22 +425,16 @@ class ResultWriter:
             ),
             include_details=False,
         )
-
         self.segment_index += 1
         self._open_segment_writers()
 
     def close(self) -> None:
-        if self._inherited is not None:
-            self._inherited.close()
-            self._inherited = None
-        if self._mendelian_bad is not None:
-            self._mendelian_bad.close()
-            self._mendelian_bad = None
-        if self._inherited_per_variant is not None:
-            self._inherited_per_variant.close()
-            self._inherited_per_variant = None
+        if self._writers_ready:
+            self._close_writers()
 
     def finalize(self, *, completed: bool = True) -> None:
+        if not self._writers_ready:
+            self.set_x_mode(self.x_mode)
         self._append_detail_delta()
         self._write_cumulative_stats()
         if self.segment_size > 0 or completed:
@@ -354,36 +453,77 @@ class ResultWriter:
         self.save_summary_files()
 
     def _write_cumulative_stats(self) -> None:
-        write_json_atomic(
-            self.output_dir / STATS_CUMULATIVE_FILENAME,
-            {
-                **self.cumulative.to_dict(include_details=False),
-                "last_chrom": self.last_chrom,
-                "last_pos": self.last_pos,
-                "segment_index": self.segment_index,
-            },
-        )
+        payload: dict[str, Any] = {
+            **self.cumulative.to_dict(include_details=False),
+            "last_chrom": self.last_chrom,
+            "last_pos": self.last_pos,
+            "segment_index": self.segment_index,
+            "x_mode": self.x_mode,
+        }
+        if self.x_mode:
+            payload["buckets"] = {
+                name: {
+                    "inherited_entries": stats.inherited_entries,
+                    "inherited_variants": stats.inherited_variants,
+                    "mendelian_bad_entries": stats.mendelian_bad_entries,
+                    "mendelian_bad_variants": stats.mendelian_bad_variants,
+                }
+                for name, stats in self.bucket_stats.items()
+            }
+        write_json_atomic(self.output_dir / STATS_CUMULATIVE_FILENAME, payload)
 
     def _append_detail_delta(self) -> None:
         if (
             not self.detail_inherited_per_person
             and not self.detail_mendelian_bad_per_gt
+            and not any(
+                stats.detail_inherited_per_person
+                or stats.detail_mendelian_bad_per_gt
+                or stats.detail_inherited_variants
+                or stats.detail_mendelian_bad_variants
+                for stats in self.bucket_stats.values()
+            )
         ):
             return
-        record = {
+        record: dict[str, Any] = {
             "segment_index": self.segment_index,
             "inherited_per_person": self.detail_inherited_per_person,
             "mendelian_bad_per_gt": self.detail_mendelian_bad_per_gt,
         }
+        if self.x_mode:
+            record["buckets"] = {
+                name: {
+                    "inherited_entries": stats.detail_inherited_entries,
+                    "inherited_variants": stats.detail_inherited_variants,
+                    "mendelian_bad_entries": stats.detail_mendelian_bad_entries,
+                    "mendelian_bad_variants": stats.detail_mendelian_bad_variants,
+                    "inherited_per_person": stats.detail_inherited_per_person,
+                    "mendelian_bad_per_gt": stats.detail_mendelian_bad_per_gt,
+                }
+                for name, stats in self.bucket_stats.items()
+                if (
+                    stats.detail_inherited_per_person
+                    or stats.detail_mendelian_bad_per_gt
+                    or stats.detail_inherited_variants
+                    or stats.detail_mendelian_bad_variants
+                )
+            }
         with self._detail_deltas_path().open("a", encoding="utf-8") as handle:
             json.dump(record, handle, separators=(",", ":"), sort_keys=True)
             handle.write("\n")
         self.detail_inherited_per_person.clear()
         self.detail_mendelian_bad_per_gt.clear()
+        for stats in self.bucket_stats.values():
+            stats.detail_inherited_entries = 0
+            stats.detail_inherited_variants = 0
+            stats.detail_mendelian_bad_entries = 0
+            stats.detail_mendelian_bad_variants = 0
+            stats.detail_inherited_per_person.clear()
+            stats.detail_mendelian_bad_per_gt.clear()
 
     def _write_detail_baseline(self, segment_index: int) -> None:
         """Convert a legacy self-contained checkpoint to the delta format."""
-        record = {
+        record: dict[str, Any] = {
             "segment_index": segment_index,
             "inherited_per_person": self.cumulative.inherited_per_person,
             "mendelian_bad_per_gt": self.cumulative.mendelian_bad_per_gt,
@@ -401,12 +541,16 @@ class ResultWriter:
 
         self.cumulative.inherited_per_person.clear()
         self.cumulative.mendelian_bad_per_gt.clear()
+        for stats in self.bucket_stats.values():
+            stats.inherited_entries = 0
+            stats.inherited_variants = 0
+            stats.mendelian_bad_entries = 0
+            stats.mendelian_bad_variants = 0
+            stats.inherited_per_person.clear()
+            stats.mendelian_bad_per_gt.clear()
 
-        # A repeated segment can be left behind if a process dies after appending
-        # details but before advancing its checkpoint. Records are append-ordered,
-        # so retain only the latest consecutive record for each segment.
         pending_segment = -1
-        pending_record: dict[str, object] | None = None
+        pending_record: dict[str, Any] | None = None
         with path.open(encoding="utf-8") as handle:
             for line in handle:
                 if not line.strip():
@@ -422,7 +566,7 @@ class ResultWriter:
         if pending_record is not None:
             self._apply_detail_record(pending_record)
 
-    def _apply_detail_record(self, record: dict[str, object]) -> None:
+    def _apply_detail_record(self, record: dict[str, Any]) -> None:
         for person_id, count in dict(record.get("inherited_per_person", {})).items():
             self.cumulative.inherited_per_person[str(person_id)] = (
                 self.cumulative.inherited_per_person.get(str(person_id), 0)
@@ -433,43 +577,87 @@ class ResultWriter:
                 self.cumulative.mendelian_bad_per_gt.get(str(gt_key), 0)
                 + int(count)
             )
+        for bucket, payload in dict(record.get("buckets", {})).items():
+            stats = self.bucket_stats.setdefault(str(bucket), BucketStats())
+            stats.inherited_entries += int(payload.get("inherited_entries", 0))
+            stats.inherited_variants += int(payload.get("inherited_variants", 0))
+            stats.mendelian_bad_entries += int(payload.get("mendelian_bad_entries", 0))
+            stats.mendelian_bad_variants += int(
+                payload.get("mendelian_bad_variants", 0)
+            )
+            for person_id, count in dict(
+                payload.get("inherited_per_person", {})
+            ).items():
+                stats.inherited_per_person[str(person_id)] = (
+                    stats.inherited_per_person.get(str(person_id), 0) + int(count)
+                )
+            for gt_key, count in dict(payload.get("mendelian_bad_per_gt", {})).items():
+                stats.mendelian_bad_per_gt[str(gt_key)] = (
+                    stats.mendelian_bad_per_gt.get(str(gt_key), 0) + int(count)
+                )
 
     def _merge_inherited_per_variant_files(self) -> None:
-        output_path = self.output_dir / "inherited_per_variant.json"
-        if self.segment_size <= 0:
-            part_path = self._inherited_per_variant_path(self.segment_index)
-            if part_path.is_file():
-                part_path.replace(output_path)
+        for bucket in self._bucket_names():
+            if self.x_mode:
+                output_name = f"inherited_per_variant_{bucket}.json"
+                pattern = f"inherited_per_variant_{bucket}_seg*.json"
             else:
-                write_json_atomic(output_path, {})
-            return
+                output_name = "inherited_per_variant.json"
+                pattern = "inherited_per_variant_seg*.json"
+            output_path = self.output_dir / output_name
+            if self.segment_size <= 0:
+                part_path = self._inherited_per_variant_path(bucket, self.segment_index)
+                if part_path.is_file():
+                    part_path.replace(output_path)
+                else:
+                    write_json_atomic(output_path, {})
+                continue
 
-        merged = JsonObjectStreamWriter(output_path.with_suffix(".json.tmp"))
-        try:
-            for path in sorted(
-                self.output_dir.glob("inherited_per_variant_seg*.json")
-            ):
-                with path.open(encoding="utf-8") as handle:
-                    for line in handle:
-                        entry = line.strip()
-                        if not entry or entry in ("{", "}", "{}"):
-                            continue
-                        merged.append_encoded(
-                            entry.removeprefix(",").removesuffix(",")
-                        )
-        finally:
-            merged.close()
-        merged.path.replace(output_path)
+            merged = JsonObjectStreamWriter(output_path.with_suffix(".json.tmp"))
+            try:
+                for path in sorted(self.output_dir.glob(pattern)):
+                    with path.open(encoding="utf-8") as handle:
+                        for line in handle:
+                            entry = line.strip()
+                            if not entry or entry in ("{", "}", "{}"):
+                                continue
+                            merged.append_encoded(
+                                entry.removeprefix(",").removesuffix(",")
+                            )
+            finally:
+                merged.close()
+            merged.path.replace(output_path)
 
     def save_summary_files(self) -> None:
-        write_json_atomic(
-            self.output_dir / "inherited_per_person.json",
-            self.cumulative.inherited_per_person,
-        )
-        write_json_atomic(
-            self.output_dir / "mendelian_bad_per_gt.json",
-            self.cumulative.mendelian_bad_per_gt,
-        )
+        if self.x_mode:
+            for bucket, stats in self.bucket_stats.items():
+                write_json_atomic(
+                    self.output_dir / f"inherited_per_person_{bucket}.json",
+                    stats.inherited_per_person,
+                )
+                write_json_atomic(
+                    self.output_dir / f"mendelian_bad_per_gt_{bucket}.json",
+                    stats.mendelian_bad_per_gt,
+                )
+                write_json_atomic(
+                    self.output_dir / f"stats_{bucket}.json",
+                    {
+                        "inherited_entries": stats.inherited_entries,
+                        "inherited_variants": stats.inherited_variants,
+                        "mendelian_bad_entries": stats.mendelian_bad_entries,
+                        "mendelian_bad_variants": stats.mendelian_bad_variants,
+                    },
+                )
+        else:
+            write_json_atomic(
+                self.output_dir / "inherited_per_person.json",
+                self.cumulative.inherited_per_person,
+            )
+            write_json_atomic(
+                self.output_dir / "mendelian_bad_per_gt.json",
+                self.cumulative.mendelian_bad_per_gt,
+            )
+
         write_json_atomic(
             self.output_dir / "stats.json",
             {
@@ -479,6 +667,7 @@ class ResultWriter:
                 "inherited_variants": self.cumulative.inherited_variants,
                 "mendelian_bad_entries": self.cumulative.mendelian_bad_entries,
                 "mendelian_bad_variants": self.cumulative.mendelian_bad_variants,
+                "x_mode": self.x_mode,
             },
         )
 

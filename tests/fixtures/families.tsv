@@ -1,4 +1,4 @@
-spid	family_id	father_id	mother_id
-child1	fam1	fa1	ma1
-fa1	fam1	0	0
-ma1	fam1	0	0
+spid	sfid	father	mother	sex	extra
+child1	fam1	fa1	ma1	Female	keep
+fa1	fam1	0	0	Male	keep
+ma1	fam1	0	0	Female	keep

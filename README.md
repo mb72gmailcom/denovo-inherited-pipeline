@@ -23,16 +23,19 @@ inherited analyze --vcf chr22.vcf.gz --af-json gnomad_chr22.json --family-file f
 
 ## Family file format
 
-Tab-separated file (required via `--family-file`):
+Tab-separated file with a header row (required via `--family-file`):
 
 ```text
-spid    family_id    father_id    mother_id
-child1  fam1         fa1          ma1
-fa1     fam1         0            0
-ma1     fam1         0            0
+spid    sfid    father    mother    sex
+child1  fam1    fa1       ma1       Female
+boy1    fam1    fa1       ma1       1
+fa1     fam1    0         0         Male
+ma1     fam1    0         0         2
 ```
 
-Complete trios (`father_id` and `mother_id` both not `0`) are used for analysis.
+Required columns: `spid`, `sfid`, `father`, `mother`, `sex`. Extra columns are ignored.
+
+Complete trios (`father` and `mother` both not `0`) with a recognized sex are used for analysis. Sex values: males `1` / `Male` / `male`; females `2` / `Female` / `female`. Children with missing or unrecognized sex are skipped on all chromosomes.
 
 ## gnomAD AF JSON
 
@@ -86,20 +89,34 @@ python run.py analyze \
 
 Repeat files are whitespace-separated ``chrom start end`` rows with half-open intervals ``[start, end)``.
 
+## Chromosome X
+
+VCFs are expected to be split per chromosome. Contigs `X` and `chrX` use sex-aware logic:
+
+- Female children: same diploid QC and inheritance rules as autosomes; one output bucket
+- Male PAR1 / PAR2 (hg38 closed intervals `[10001, 2781479]` and `[155701383, 156030895]`): same diploid trio logic as autosomes
+- Male nonPAR: mother–son pairs only (father ignored on chrX); child uses haploid QC (`DP≥5`, `AB≥0.85`, `GQ≥20`); mother uses diploid QC; inherited if `ac>0` and `mac>0`; mendelian_bad if `ac>0` and `mac==0`
+
 ## Output
 
-The output directory contains:
+Autosomal output directory contains:
 
 - `inherited_XXXXX.tsv` / `mendelian_bad_XXXXX.tsv` — segmented result files (when `--segment-size > 0`)
 - `inherited.tsv` / `mendelian_bad.tsv` — single files when `--segment-size 0`
+- `inherited_per_variant.json`, `inherited_per_person.json`, `mendelian_bad_per_gt.json`, `stats.json`
+
+chrX output uses sex/region buckets:
+
+- `inherited_females_XXXXX.tsv`, `inherited_male_par1_XXXXX.tsv`, `inherited_male_nonPar_XXXXX.tsv`, `inherited_male_par2_XXXXX.tsv`
+- matching `mendelian_bad_*` files
+- matching per-bucket `inherited_per_person_*.json`, `mendelian_bad_per_gt_*.json`, `inherited_per_variant_*.json`, `stats_*.json`
+
+Shared run metadata:
+
 - `checkpoint.json` — resume point (updated after each segment)
 - `stats_cumulative.json` — running totals (updated after each segment)
 - `cumulative_detail_deltas.jsonl` — append-only per-segment summary details used for resume
-- `inherited_per_variant_segXXXXX.json` — per-segment variant counts (merged at end)
-- `inherited_per_variant.json` — merged variant counts
-- `inherited_per_person.json` — person id → number of inherited variants
-- `mendelian_bad_per_gt.json` — `mother_gt:father_gt:child_gt` → count
-- `stats.json` — final summary counts
+- `stats.json` — final overall summary counts
 - `params.json` — parameters used for this run
 
 Each chromosome output directory (e.g. `results/chr22/`) contains its own `params.json` alongside the result files.
@@ -117,6 +134,8 @@ Use `--no-short-format` for full genotype output:
 #CHROM  POS  ID  REF  ALT  TRIO_CALLS
 22      3000 .   A   G    child1=0/1|0/0|0/1|30
 ```
+
+Male nonPAR full format omits the father genotype: `child_id=mother_gt|child_gt|child_gq`.
 
 Use `--block-size` (default `10000`) for in-memory buffer flushes within a segment.
 

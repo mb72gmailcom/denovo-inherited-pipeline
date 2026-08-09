@@ -1,0 +1,6 @@
+{
+  "var_par1": 0.001,
+  "var_nonpar_inh": 0.001,
+  "var_nonpar_bad": 0.001,
+  "var_par2": 0.001
+}

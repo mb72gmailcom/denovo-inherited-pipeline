@@ -4,6 +4,8 @@ from inherited.constants import (
     DEFAULT_AB,
     DEFAULT_DP,
     DEFAULT_GQ,
+    DEFAULT_HAPLO_AB,
+    DEFAULT_HAPLO_DP,
 )
 
 
@@ -45,16 +47,19 @@ def is_good(
     alt_index: int = 1,
     *,
     clean_missing_ad_as_zero: bool = False,
+    dp_min: int = DEFAULT_DP,
+    ab_min: float = DEFAULT_AB,
+    gq_min: int = DEFAULT_GQ,
 ) -> bool:
     if "." in gt:
         return False
 
     dp_value = _parse_int_field(dp)
-    if dp_value is None or dp_value < DEFAULT_DP:
+    if dp_value is None or dp_value < dp_min:
         return False
 
     gq_value = _parse_int_field(gq)
-    if gq_value is None or gq_value < DEFAULT_GQ:
+    if gq_value is None or gq_value < gq_min:
         return False
 
     ads = _parse_ad_field(ad, clean_missing_as_zero=clean_missing_ad_as_zero)
@@ -62,7 +67,14 @@ def is_good(
         return False
     if sum(ads) == 0:
         return False
-    if ads[alt_index] / sum(ads) < DEFAULT_AB:
+
+    # Require sufficient alt support only when the genotype includes that alt.
+    # Homozygous-reference calls are allowed through with DP/GQ alone.
+    has_alt = any(
+        allele.isdigit() and int(allele) == alt_index
+        for allele in gt.replace("|", "/").split("/")
+    )
+    if has_alt and ads[alt_index] / sum(ads) < ab_min:
         return False
     return True
 
@@ -72,6 +84,7 @@ def get_good_site(
     alt_index: int = 1,
     *,
     clean_ad: bool = False,
+    haploid: bool = False,
 ) -> tuple[int, str, str]:
     """Return allele count, GT, and GQ for one alternate allele.
 
@@ -81,12 +94,17 @@ def get_good_site(
     When ``clean_ad`` is True, missing AD values (``.``) are treated as zero depth
     for that allele. Used on the multiallelic path so one missing ALT depth does
     not reject all alleles at the site.
+
+    When ``haploid`` is True, use haploid depth/AB thresholds while still counting
+    alternate alleles from the GT field.
     """
     parts = sample_field.split(":")
     if len(parts) < 6:
         return -1, ".", "0"
 
     gt, dp, ad, sb, gq = parts[0], parts[1], parts[2], parts[3], parts[4]
+    dp_min = DEFAULT_HAPLO_DP if haploid else DEFAULT_DP
+    ab_min = DEFAULT_HAPLO_AB if haploid else DEFAULT_AB
     if is_good(
         gt,
         dp,
@@ -95,6 +113,8 @@ def get_good_site(
         gq,
         alt_index,
         clean_missing_ad_as_zero=clean_ad,
+        dp_min=dp_min,
+        ab_min=ab_min,
     ):
         ac = sum(int(g) == alt_index for g in gt.replace("|", "/").split("/"))
         return ac, gt, gq
