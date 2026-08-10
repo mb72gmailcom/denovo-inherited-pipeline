@@ -440,7 +440,10 @@ def _process_trios_for_allele(
     for child_idx, mother_idx, father_idx in trios_ind:
         child_sample = sample_fields[child_idx]
         ac, child_gt, child_gq = get_good_site(
-            child_sample, alt_index, clean_ad=clean_ad
+            child_sample,
+            alt_index,
+            clean_ad=clean_ad,
+            skip_qc_if_no_alt=True,
         )
         if ac <= 0:
             continue
@@ -521,6 +524,7 @@ def _process_male_nonpar_pairs(
             alt_index,
             clean_ad=clean_ad,
             haploid=True,
+            skip_qc_if_no_alt=True,
         )
         if ac <= 0:
             continue
@@ -580,6 +584,7 @@ def _process_y_allele(
             alt_index,
             clean_ad=clean_ad,
             haploid=True,
+            skip_qc_if_no_alt=True,
         )
         if ac <= 0:
             continue

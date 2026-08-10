@@ -90,6 +90,7 @@ def get_good_site(
     *,
     clean_ad: bool = False,
     haploid: bool = False,
+    skip_qc_if_no_alt: bool = False,
 ) -> tuple[int, str, str]:
     """Return allele count, GT, and GQ for one alternate allele.
 
@@ -102,13 +103,24 @@ def get_good_site(
 
     When ``haploid`` is True, use haploid depth/AB thresholds while still counting
     alternate alleles from the GT field.
+
+    When ``skip_qc_if_no_alt`` is True and the genotype carries no copies of the
+    queried alt, return ``(0, gt, gq)`` without DP/AD/GQ checks. Used for child
+    lookups where non-carriers are discarded immediately.
     """
     parts = sample_field.split(":")
     if len(parts) < 6:
         return -1, ".", "0"
 
     gt, dp, ad, sb, gq = parts[0], parts[1], parts[2], parts[3], parts[4]
+    if "." in gt:
+        return -1, ".", "0"
+
     alleles = _gt_alleles(gt)
+    ac = sum(allele.isdigit() and int(allele) == alt_index for allele in alleles)
+    if skip_qc_if_no_alt and ac == 0:
+        return 0, gt, gq
+
     dp_min = DEFAULT_HAPLO_DP if haploid else DEFAULT_DP
     ab_min = DEFAULT_HAPLO_AB if haploid else DEFAULT_AB
     if is_good(
@@ -123,6 +135,5 @@ def get_good_site(
         ab_min=ab_min,
         alleles=alleles,
     ):
-        ac = sum(int(allele) == alt_index for allele in alleles)
         return ac, gt, gq
     return -1, ".", "0"

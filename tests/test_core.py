@@ -105,6 +105,18 @@ def test_get_good_site_homozygous_reference_returns_zero():
     assert get_good_site(sample, 1) == (0, "0/0", "30")
 
 
+def test_get_good_site_skip_qc_if_no_alt_bypasses_depth():
+    # Low DP would fail normal QC, but non-carrier children skip QC entirely.
+    sample = "0/0:1:1,0:0,0,0,0:1:0,1,1:."
+    assert get_good_site(sample, 1) == (-1, ".", "0")
+    assert get_good_site(sample, 1, skip_qc_if_no_alt=True) == (0, "0/0", "1")
+
+
+def test_get_good_site_skip_qc_if_no_alt_still_filters_carriers():
+    sample = "0/1:5:2,3:0,0,0,0:30:0,30,30:."
+    assert get_good_site(sample, 1, skip_qc_if_no_alt=True) == (-1, ".", "0")
+
+
 def test_get_good_site_haploid_thresholds():
     low_ab = "1/1:10:5,5:0,0,0,0:30:0,30,30:."
     assert get_good_site(low_ab, 1, haploid=True) == (-1, ".", "0")
