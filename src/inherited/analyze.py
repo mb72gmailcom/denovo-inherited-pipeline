@@ -127,6 +127,7 @@ def analyze_vcf(
         with opener(vcf_path, "rt", encoding="utf-8") as handle:
             female_trios: list[tuple[int, int, int]] = []
             male_trios: list[tuple[int, int, int]] = []
+            all_trios: list[tuple[int, int, int]] = []
             sample_header: list[str] = []
             mode_set = False
 
@@ -138,6 +139,7 @@ def analyze_vcf(
                     female_trios, male_trios = build_sexed_trio_indices(
                         sample_header, relations
                     )
+                    all_trios = female_trios + male_trios
                     continue
 
                 pos = get_position(line)
@@ -146,8 +148,8 @@ def analyze_vcf(
                 if repeat_filter is not None and repeat_filter.in_repeat(pos):
                     continue
 
-                chrom = get_nfields(line, 1)[0]
                 if not mode_set:
+                    chrom = get_nfields(line, 1)[0]
                     writer.set_chrom_mode(chrom_mode_for(chrom))
                     mode_set = True
 
@@ -158,6 +160,7 @@ def analyze_vcf(
                         af_threshold,
                         female_trios,
                         male_trios,
+                        all_trios,
                         sample_header,
                         writer,
                     )
@@ -168,6 +171,7 @@ def analyze_vcf(
                         af_threshold,
                         female_trios,
                         male_trios,
+                        all_trios,
                         sample_header,
                         writer,
                     )
@@ -203,6 +207,7 @@ def _process_multiallelic_line(
     af_threshold: float,
     female_trios: list[tuple[int, int, int]],
     male_trios: list[tuple[int, int, int]],
+    all_trios: list[tuple[int, int, int]],
     sample_header: list[str],
     writer: ResultWriter,
 ) -> None:
@@ -243,6 +248,7 @@ def _process_multiallelic_line(
             sample_header,
             female_trios,
             male_trios,
+            all_trios,
             writer,
             clean_ad=True,
         )
@@ -254,6 +260,7 @@ def _process_biallelic_line(
     af_threshold: float,
     female_trios: list[tuple[int, int, int]],
     male_trios: list[tuple[int, int, int]],
+    all_trios: list[tuple[int, int, int]],
     sample_header: list[str],
     writer: ResultWriter,
 ) -> None:
@@ -277,6 +284,7 @@ def _process_biallelic_line(
         sample_header,
         female_trios,
         male_trios,
+        all_trios,
         writer,
     )
 
@@ -292,6 +300,7 @@ def _process_allele(
     sample_header: list[str],
     female_trios: list[tuple[int, int, int]],
     male_trios: list[tuple[int, int, int]],
+    all_trios: list[tuple[int, int, int]],
     writer: ResultWriter,
     *,
     clean_ad: bool = False,
@@ -338,7 +347,7 @@ def _process_allele(
         alt_index,
         sample_fields,
         sample_header,
-        female_trios + male_trios,
+        all_trios,
         writer,
         clean_ad=clean_ad,
         bucket="",

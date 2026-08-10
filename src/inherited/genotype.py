@@ -38,6 +38,10 @@ def _parse_ad_field(ad: str, clean_missing_as_zero: bool = False) -> list[int] |
     return values or None
 
 
+def _gt_alleles(gt: str) -> list[str]:
+    return gt.replace("|", "/").split("/")
+
+
 def is_good(
     gt: str,
     dp: str,
@@ -50,6 +54,7 @@ def is_good(
     dp_min: int = DEFAULT_DP,
     ab_min: float = DEFAULT_AB,
     gq_min: int = DEFAULT_GQ,
+    alleles: list[str] | None = None,
 ) -> bool:
     if "." in gt:
         return False
@@ -70,9 +75,9 @@ def is_good(
 
     # Require sufficient alt support only when the genotype includes that alt.
     # Homozygous-reference calls are allowed through with DP/GQ alone.
+    parsed = alleles if alleles is not None else _gt_alleles(gt)
     has_alt = any(
-        allele.isdigit() and int(allele) == alt_index
-        for allele in gt.replace("|", "/").split("/")
+        allele.isdigit() and int(allele) == alt_index for allele in parsed
     )
     if has_alt and ads[alt_index] / sum(ads) < ab_min:
         return False
@@ -103,6 +108,7 @@ def get_good_site(
         return -1, ".", "0"
 
     gt, dp, ad, sb, gq = parts[0], parts[1], parts[2], parts[3], parts[4]
+    alleles = _gt_alleles(gt)
     dp_min = DEFAULT_HAPLO_DP if haploid else DEFAULT_DP
     ab_min = DEFAULT_HAPLO_AB if haploid else DEFAULT_AB
     if is_good(
@@ -115,7 +121,8 @@ def get_good_site(
         clean_missing_ad_as_zero=clean_ad,
         dp_min=dp_min,
         ab_min=ab_min,
+        alleles=alleles,
     ):
-        ac = sum(int(g) == alt_index for g in gt.replace("|", "/").split("/"))
+        ac = sum(int(allele) == alt_index for allele in alleles)
         return ac, gt, gq
     return -1, ".", "0"
