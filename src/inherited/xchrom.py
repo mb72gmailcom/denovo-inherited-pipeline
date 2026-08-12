@@ -7,9 +7,9 @@ PAR1 = (PAR1_START, PAR1_END)
 PAR2 = (PAR2_START, PAR2_END)
 
 X_BUCKET_FEMALES = "females"
-X_BUCKET_MALE_PAR1 = "male_par1"
-X_BUCKET_MALE_PAR2 = "male_par2"
-X_BUCKET_MALE_NONPAR = "male_nonPar"
+X_BUCKET_MALE_PAR1 = "males_par1"
+X_BUCKET_MALE_PAR2 = "males_par2"
+X_BUCKET_MALE_NONPAR = "males_nonPar"
 
 X_BUCKETS = (
     X_BUCKET_FEMALES,

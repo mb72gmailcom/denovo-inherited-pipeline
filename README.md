@@ -104,7 +104,7 @@ Contigs `Y` and `chrY` are treated as nonPAR only. Analysis loops over male chil
 - Child and father both use haploid QC (`DP≥5`, `AB≥0.85`, `GQ≥20`)
 - Inherited if `ac>0` and `fac>0`; mendelian_bad if `ac>0` and `fac==0`
 - Father haploid QC failure skips the pair
-- Output uses only the `male_nonPar` bucket (no empty PAR/female files)
+- Output uses only the `males_nonPar` bucket (no empty PAR/female files)
 - Full format: `child_id=father_gt|child_gt|child_gq`
 
 ## Output
@@ -117,7 +117,7 @@ Autosomal output directory contains:
 
 chrX output uses sex/region buckets:
 
-- `inherited_females_XXXXX.tsv`, `inherited_male_par1_XXXXX.tsv`, `inherited_male_nonPar_XXXXX.tsv`, `inherited_male_par2_XXXXX.tsv`
+- `inherited_females_XXXXX.tsv`, `inherited_males_par1_XXXXX.tsv`, `inherited_males_nonPar_XXXXX.tsv`, `inherited_males_par2_XXXXX.tsv`
 - matching `mendelian_bad_*` files
 - matching per-bucket `inherited_per_person_*.json`, `mendelian_bad_per_gt_*.json`, `inherited_per_variant_*.json`, `stats_*.json`
 
