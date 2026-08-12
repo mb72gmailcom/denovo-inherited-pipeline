@@ -40,6 +40,9 @@ def test_result_writer_streams_and_merges_per_variant_counts(tmp_path):
             "p2": ("0/1", "0/0", "0/1", "30"),
         },
     )
+    writer.write_denovo(
+        "22", "300", "A", "T", "variant_c", {"p1": ("0/0", "0/0", "0/1", "30")}
+    )
     writer.close()
     writer.finalize()
 
@@ -47,6 +50,10 @@ def test_result_writer_streams_and_merges_per_variant_counts(tmp_path):
         "variant_a": 1,
         "variant_b": 2,
     }
+    assert json.loads((tmp_path / "denovo_per_variant.json").read_text()) == {
+        "variant_c": 1
+    }
+    assert json.loads((tmp_path / "denovo_per_person.json").read_text()) == {"p1": 1}
 
 
 def test_result_writer_streams_unsegmented_per_variant_counts(tmp_path):

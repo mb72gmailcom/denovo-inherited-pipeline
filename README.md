@@ -95,14 +95,19 @@ VCFs are expected to be split per chromosome. Contigs `X` and `chrX` use sex-awa
 
 - Female children: same diploid QC and inheritance rules as autosomes; one output bucket
 - Male PAR1 / PAR2 (hg38 closed intervals `[10001, 2781479]` and `[155701383, 156030895]`): same diploid trio logic as autosomes
-- Male nonPAR: mother–son pairs only (father ignored on chrX); child uses haploid QC (`DP≥5`, `AB≥0.85`, `GQ≥20`); mother uses diploid QC; inherited if `ac>0` and `mac>0`; mendelian_bad if `ac>0` and `mac==0`
+- Male nonPAR: mother–son pairs only (father ignored on chrX); child uses haploid QC (`DP≥5`, `AB≥0.85`, `GQ≥20`); mother uses diploid QC; inherited if `ac>0` and `mac>0`; denovo if `ac>0` and `mac==0`
+
+Diploid call classes (autosomes, female chrX, male PAR):
+
+- inherited / mendelian_bad: existing Mendelian rules when at least one parent carries the alt
+- denovo: `ac>0` and `mac==0` and `fac==0` (both parents good-quality non-carriers)
 
 ## Chromosome Y
 
 Contigs `Y` and `chrY` are treated as nonPAR only. Analysis loops over male children and father–son pairs:
 
 - Child and father both use haploid QC (`DP≥5`, `AB≥0.85`, `GQ≥20`)
-- Inherited if `ac>0` and `fac>0`; mendelian_bad if `ac>0` and `fac==0`
+- Inherited if `ac>0` and `fac>0`; denovo if `ac>0` and `fac==0`
 - Father haploid QC failure skips the pair
 - Output uses only the `males_nonPar` bucket (no empty PAR/female files)
 - Full format: `child_id=father_gt|child_gt|child_gq`
@@ -111,15 +116,15 @@ Contigs `Y` and `chrY` are treated as nonPAR only. Analysis loops over male chil
 
 Autosomal output directory contains:
 
-- `inherited_XXXXX.tsv` / `mendelian_bad_XXXXX.tsv` — segmented result files (when `--segment-size > 0`)
-- `inherited.tsv` / `mendelian_bad.tsv` — single files when `--segment-size 0`
-- `inherited_per_variant.json`, `inherited_per_person.json`, `mendelian_bad_per_gt.json`, `stats.json`
+- `inherited_XXXXX.tsv` / `mendelian_bad_XXXXX.tsv` / `denovo_XXXXX.tsv` — segmented result files (when `--segment-size > 0`)
+- `inherited.tsv` / `mendelian_bad.tsv` / `denovo.tsv` — single files when `--segment-size 0`
+- `inherited_per_variant.json`, `inherited_per_person.json`, `denovo_per_variant.json`, `denovo_per_person.json`, `mendelian_bad_per_gt.json`, `stats.json`
 
 chrX output uses sex/region buckets:
 
 - `inherited_females_XXXXX.tsv`, `inherited_males_par1_XXXXX.tsv`, `inherited_males_nonPar_XXXXX.tsv`, `inherited_males_par2_XXXXX.tsv`
-- matching `mendelian_bad_*` files
-- matching per-bucket `inherited_per_person_*.json`, `mendelian_bad_per_gt_*.json`, `inherited_per_variant_*.json`, `stats_*.json`
+- matching `mendelian_bad_*` and `denovo_*` files
+- matching per-bucket `inherited_per_person_*.json`, `denovo_per_person_*.json`, `mendelian_bad_per_gt_*.json`, `inherited_per_variant_*.json`, `denovo_per_variant_*.json`, `stats_*.json`
 
 Shared run metadata:
 

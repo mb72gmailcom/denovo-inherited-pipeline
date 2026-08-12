@@ -4,7 +4,11 @@ import pytest
 
 from inherited.af import is_rare, load_af_json
 from inherited.analyze import get_position
-from inherited.classify import classify_trio
+from inherited.classify import (
+    classify_father_son,
+    classify_mother_son,
+    classify_trio,
+)
 from inherited.families import load_family_relations, normalize_sex
 from inherited.genotype import get_good_site, is_good
 from inherited.xchrom import chrom_mode_for, is_x_chrom, is_y_chrom, male_x_bucket, x_region
@@ -150,16 +154,47 @@ def test_get_good_site_returns_negative_one_when_not_good():
 @pytest.mark.parametrize(
     ("ac", "mac", "fac", "expected"),
     [
-        (1, 2, 2, False),
-        (2, 2, 2, True),
-        (2, 1, 0, False),
-        (1, 1, 0, True),
-        (2, 0, 1, False),
-        (1, 0, 1, True),
+        (1, 2, 2, "mendelian_bad"),
+        (2, 2, 2, "inherited"),
+        (2, 1, 0, "mendelian_bad"),
+        (1, 1, 0, "inherited"),
+        (2, 0, 1, "mendelian_bad"),
+        (1, 0, 1, "inherited"),
+        (1, 0, 0, "denovo"),
+        (2, 0, 0, "denovo"),
+        (1, -1, 0, None),
+        (1, 0, -1, None),
+        (0, 0, 0, None),
     ],
 )
 def test_classify_trio(ac, mac, fac, expected):
-    assert classify_trio(ac, mac, fac) is expected
+    assert classify_trio(ac, mac, fac) == expected
+
+
+@pytest.mark.parametrize(
+    ("ac", "mac", "expected"),
+    [
+        (1, 1, "inherited"),
+        (1, 0, "denovo"),
+        (1, -1, None),
+        (0, 0, None),
+    ],
+)
+def test_classify_mother_son(ac, mac, expected):
+    assert classify_mother_son(ac, mac) == expected
+
+
+@pytest.mark.parametrize(
+    ("ac", "fac", "expected"),
+    [
+        (1, 1, "inherited"),
+        (1, 0, "denovo"),
+        (1, -1, None),
+        (0, 0, None),
+    ],
+)
+def test_classify_father_son(ac, fac, expected):
+    assert classify_father_son(ac, fac) == expected
 
 
 def test_x_region_and_buckets():

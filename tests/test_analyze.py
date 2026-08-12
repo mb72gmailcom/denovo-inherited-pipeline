@@ -23,13 +23,20 @@ def test_analyze_vcf_writes_short_format_single_file(tmp_path):
 
     inherited_records = read_result_tsv(tmp_path / "out" / "inherited.tsv", short_format=True)
     bad_records = read_result_tsv(tmp_path / "out" / "mendelian_bad.tsv", short_format=True)
+    denovo_records = read_result_tsv(tmp_path / "out" / "denovo.tsv", short_format=True)
 
     assert len(inherited_records) == 1
     chrom, pos, ref, alt, patient_ids = inherited_records[0]
     assert chrom == "22" and pos == "3000" and patient_ids == ["child1"]
     assert len(bad_records) == 1
+    assert len(denovo_records) == 1
+    assert denovo_records[0][1] == "1000"
+    assert denovo_records[0][4] == ["child1"]
     assert stats.inherited_variants == 1
+    assert stats.denovo_variants == 1
     assert json.loads((tmp_path / "out" / "inherited_per_variant.json").read_text())["var_inh"] == 1
+    assert json.loads((tmp_path / "out" / "denovo_per_variant.json").read_text())["var_rare"] == 1
+    assert json.loads((tmp_path / "out" / "denovo_per_person.json").read_text())["child1"] == 1
 
 
 def test_analyze_vcf_writes_segmented_output(tmp_path):
@@ -71,12 +78,16 @@ def test_analyze_vcf_skips_variants_in_repeat_intervals(tmp_path):
 
     inherited_records = read_result_tsv(tmp_path / "out" / "inherited.tsv", short_format=True)
     bad_records = read_result_tsv(tmp_path / "out" / "mendelian_bad.tsv", short_format=True)
+    denovo_records = read_result_tsv(tmp_path / "out" / "denovo.tsv", short_format=True)
 
     assert len(inherited_records) == 0
     assert len(bad_records) == 1
     assert bad_records[0][1] == "4000"
+    assert len(denovo_records) == 1
+    assert denovo_records[0][1] == "1000"
     assert stats.inherited_variants == 0
     assert stats.mendelian_bad_variants == 1
+    assert stats.denovo_variants == 1
 
 
 def test_resume_continues_from_checkpoint(tmp_path):
@@ -111,6 +122,7 @@ def test_resume_continues_from_checkpoint(tmp_path):
 
     assert stats.inherited_variants == 1
     assert stats.mendelian_bad_variants == 1
+    assert stats.denovo_variants == 0
     assert stats.variants_seen == 4
     assert len(read_result_tsv(glob_result_tsvs(out, "mendelian_bad")[0])) == 1
 
@@ -160,8 +172,8 @@ def test_analyze_chrx_splits_sex_and_region_outputs(tmp_path):
     females = read_result_tsv(out / "inherited_females.tsv", short_format=False)
     male_par1 = read_result_tsv(out / "inherited_males_par1.tsv", short_format=False)
     male_nonpar = read_result_tsv(out / "inherited_males_nonPar.tsv", short_format=False)
-    male_nonpar_bad = read_result_tsv(
-        out / "mendelian_bad_males_nonPar.tsv", short_format=False
+    male_nonpar_denovo = read_result_tsv(
+        out / "denovo_males_nonPar.tsv", short_format=False
     )
     male_par2 = read_result_tsv(out / "inherited_males_par2.tsv", short_format=False)
 
@@ -175,13 +187,16 @@ def test_analyze_chrx_splits_sex_and_region_outputs(tmp_path):
     assert len(male_nonpar) == 1 and male_nonpar[0][1] == "5000000"
     assert male_nonpar[0][4] == {"boy1": ("0/1", "1/1", "30")}
 
-    assert len(male_nonpar_bad) == 1 and male_nonpar_bad[0][1] == "5000100"
-    assert male_nonpar_bad[0][4] == {"boy1": ("0/0", "1/1", "30")}
+    assert len(male_nonpar_denovo) == 1 and male_nonpar_denovo[0][1] == "5000100"
+    assert male_nonpar_denovo[0][4] == {"boy1": ("0/0", "1/1", "30")}
 
     assert len(male_par2) == 1 and male_par2[0][1] == "155800000"
     assert male_par2[0][4] == {"boy1": ("0/1", "0/0", "0/1", "30")}
     assert stats.inherited_variants >= 1
+    assert stats.denovo_variants >= 1
     assert (out / "inherited_per_person_females.json").is_file()
+    assert (out / "denovo_per_person_males_nonPar.json").is_file()
+    assert (out / "denovo_per_variant_males_nonPar.json").is_file()
     assert (out / "inherited_per_person_males_nonPar.json").is_file()
     assert (out / "stats_males_par1.json").is_file()
 
@@ -199,17 +214,20 @@ def test_analyze_chry_uses_only_male_nonpar_bucket(tmp_path):
 
     out = tmp_path / "out"
     inherited = read_result_tsv(out / "inherited_males_nonPar.tsv", short_format=False)
-    bad = read_result_tsv(out / "mendelian_bad_males_nonPar.tsv", short_format=False)
+    denovo = read_result_tsv(out / "denovo_males_nonPar.tsv", short_format=False)
 
     assert len(inherited) == 1 and inherited[0][1] == "100000"
     assert inherited[0][4] == {"boy1": ("1/1", "1/1", "30")}
-    assert len(bad) == 1 and bad[0][1] == "200000"
-    assert bad[0][4] == {"boy1": ("0/0", "1/1", "30")}
+    assert len(denovo) == 1 and denovo[0][1] == "200000"
+    assert denovo[0][4] == {"boy1": ("0/0", "1/1", "30")}
 
     assert not (out / "inherited_females.tsv").exists()
     assert not (out / "inherited_males_par1.tsv").exists()
     assert not (out / "inherited_males_par2.tsv").exists()
     assert (out / "inherited_per_person_males_nonPar.json").is_file()
+    assert (out / "denovo_per_person_males_nonPar.json").is_file()
+    assert (out / "denovo_per_variant_males_nonPar.json").is_file()
     assert (out / "stats_males_nonPar.json").is_file()
     assert stats.inherited_variants == 1
-    assert stats.mendelian_bad_variants == 1
+    assert stats.denovo_variants == 1
+    assert stats.mendelian_bad_variants == 0

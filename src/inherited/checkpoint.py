@@ -18,7 +18,10 @@ class CumulativeStats:
     inherited_variants: int = 0
     mendelian_bad_entries: int = 0
     mendelian_bad_variants: int = 0
+    denovo_entries: int = 0
+    denovo_variants: int = 0
     inherited_per_person: dict[str, int] = field(default_factory=dict)
+    denovo_per_person: dict[str, int] = field(default_factory=dict)
     mendelian_bad_per_gt: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self, *, include_details: bool = True) -> dict[str, Any]:
@@ -29,9 +32,12 @@ class CumulativeStats:
             "inherited_variants": self.inherited_variants,
             "mendelian_bad_entries": self.mendelian_bad_entries,
             "mendelian_bad_variants": self.mendelian_bad_variants,
+            "denovo_entries": self.denovo_entries,
+            "denovo_variants": self.denovo_variants,
         }
         if include_details:
             data["inherited_per_person"] = self.inherited_per_person
+            data["denovo_per_person"] = self.denovo_per_person
             data["mendelian_bad_per_gt"] = self.mendelian_bad_per_gt
         return data
 
@@ -44,7 +50,10 @@ class CumulativeStats:
             inherited_variants=int(data.get("inherited_variants", 0)),
             mendelian_bad_entries=int(data.get("mendelian_bad_entries", 0)),
             mendelian_bad_variants=int(data.get("mendelian_bad_variants", 0)),
+            denovo_entries=int(data.get("denovo_entries", 0)),
+            denovo_variants=int(data.get("denovo_variants", 0)),
             inherited_per_person=dict(data.get("inherited_per_person", {})),
+            denovo_per_person=dict(data.get("denovo_per_person", {})),
             mendelian_bad_per_gt=dict(data.get("mendelian_bad_per_gt", {})),
         )
 

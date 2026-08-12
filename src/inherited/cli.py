@@ -42,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         required=True,
         type=Path,
-        help="Directory for segmented inherited/mendelian_bad TSV output",
+        help="Directory for segmented inherited/mendelian_bad/denovo TSV output",
     )
     analyze.add_argument(
         "--multiallelic",
@@ -160,13 +160,15 @@ def main(argv: list[str] | None = None) -> None:
         output_label = (
             "segmented TSV files"
             if args.segment_size > 0
-            else "inherited.tsv / mendelian_bad.tsv"
+            else "inherited.tsv / mendelian_bad.tsv / denovo.tsv"
         )
         print(
             f"Wrote {stats.inherited_entries} inherited entries "
-            f"({stats.inherited_variants} variants) and "
+            f"({stats.inherited_variants} variants), "
             f"{stats.mendelian_bad_entries} mendelian_bad entries "
-            f"({stats.mendelian_bad_variants} variants) as {output_label} "
+            f"({stats.mendelian_bad_variants} variants), and "
+            f"{stats.denovo_entries} denovo entries "
+            f"({stats.denovo_variants} variants) as {output_label} "
             f"to {args.output_dir}"
         )
         print(f"Wrote parameters to {params_path}")

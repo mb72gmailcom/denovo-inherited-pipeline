@@ -165,13 +165,19 @@ class BucketStats:
     inherited_variants: int = 0
     mendelian_bad_entries: int = 0
     mendelian_bad_variants: int = 0
+    denovo_entries: int = 0
+    denovo_variants: int = 0
     inherited_per_person: dict[str, int] = field(default_factory=dict)
+    denovo_per_person: dict[str, int] = field(default_factory=dict)
     mendelian_bad_per_gt: dict[str, int] = field(default_factory=dict)
     detail_inherited_entries: int = 0
     detail_inherited_variants: int = 0
     detail_mendelian_bad_entries: int = 0
     detail_mendelian_bad_variants: int = 0
+    detail_denovo_entries: int = 0
+    detail_denovo_variants: int = 0
     detail_inherited_per_person: dict[str, int] = field(default_factory=dict)
+    detail_denovo_per_person: dict[str, int] = field(default_factory=dict)
     detail_mendelian_bad_per_gt: dict[str, int] = field(default_factory=dict)
 
 
@@ -188,14 +194,20 @@ class ResultWriter:
     last_pos: int = 0
     inherited_segment_lines: int = 0
     mendelian_bad_segment_lines: int = 0
+    denovo_segment_lines: int = 0
     detail_inherited_per_person: dict[str, int] = field(default_factory=dict)
+    detail_denovo_per_person: dict[str, int] = field(default_factory=dict)
     detail_mendelian_bad_per_gt: dict[str, int] = field(default_factory=dict)
     bucket_stats: dict[str, BucketStats] = field(default_factory=dict)
     resume_mode: bool = False
     _writers_ready: bool = False
     _inherited: dict[str, BlockWriter] = field(default_factory=dict, repr=False)
     _mendelian_bad: dict[str, BlockWriter] = field(default_factory=dict, repr=False)
+    _denovo: dict[str, BlockWriter] = field(default_factory=dict, repr=False)
     _inherited_per_variant: dict[str, JsonObjectStreamWriter] = field(
+        default_factory=dict, repr=False
+    )
+    _denovo_per_variant: dict[str, JsonObjectStreamWriter] = field(
         default_factory=dict, repr=False
     )
 
@@ -287,14 +299,22 @@ class ResultWriter:
             return self.output_dir / f"{stem}.tsv"
         return self.output_dir / f"{stem}_{segment_index:05d}.tsv"
 
-    def _inherited_per_variant_path(self, bucket: str, segment_index: int) -> Path:
+    def _per_variant_path(
+        self, kind: str, bucket: str, segment_index: int
+    ) -> Path:
         if self.uses_named_buckets:
-            stem = f"inherited_per_variant_{bucket}"
+            stem = f"{kind}_per_variant_{bucket}"
         else:
-            stem = "inherited_per_variant"
+            stem = f"{kind}_per_variant"
         if self.segment_size <= 0:
             return self.output_dir / f".{stem}.json.part"
         return self.output_dir / f"{stem}_seg{segment_index:05d}.json"
+
+    def _inherited_per_variant_path(self, bucket: str, segment_index: int) -> Path:
+        return self._per_variant_path("inherited", bucket, segment_index)
+
+    def _denovo_per_variant_path(self, bucket: str, segment_index: int) -> Path:
+        return self._per_variant_path("denovo", bucket, segment_index)
 
     def _detail_deltas_path(self) -> Path:
         return self.output_dir / DETAIL_DELTAS_FILENAME
@@ -304,11 +324,17 @@ class ResultWriter:
             writer.close()
         for writer in self._mendelian_bad.values():
             writer.close()
+        for writer in self._denovo.values():
+            writer.close()
         for writer in self._inherited_per_variant.values():
+            writer.close()
+        for writer in self._denovo_per_variant.values():
             writer.close()
         self._inherited.clear()
         self._mendelian_bad.clear()
+        self._denovo.clear()
         self._inherited_per_variant.clear()
+        self._denovo_per_variant.clear()
 
     def _open_segment_writers(self) -> None:
         self._close_writers()
@@ -323,11 +349,20 @@ class ResultWriter:
                 self.block_size,
                 short_format=self.short_format,
             )
+            self._denovo[bucket] = BlockWriter(
+                self._result_path("denovo", bucket, self.segment_index),
+                self.block_size,
+                short_format=self.short_format,
+            )
             self._inherited_per_variant[bucket] = JsonObjectStreamWriter(
                 self._inherited_per_variant_path(bucket, self.segment_index)
             )
+            self._denovo_per_variant[bucket] = JsonObjectStreamWriter(
+                self._denovo_per_variant_path(bucket, self.segment_index)
+            )
         self.inherited_segment_lines = 0
         self.mendelian_bad_segment_lines = 0
+        self.denovo_segment_lines = 0
 
     def write_inherited(
         self,
@@ -426,6 +461,55 @@ class ResultWriter:
         self._update_position(chrom, pos)
         self._maybe_rotate_segment()
 
+    def write_denovo(
+        self,
+        chrom: str,
+        pos: str,
+        ref: str,
+        alt: str,
+        variant_key: str,
+        hits: dict[str, HitRecord],
+        *,
+        bucket: str = "",
+    ) -> None:
+        if not hits:
+            return
+        if not self._writers_ready:
+            self.set_chrom_mode(CHROM_MODE_AUTOSOMAL)
+        if bucket not in self._denovo:
+            raise KeyError(f"Unknown output bucket: {bucket!r}")
+        self._denovo[bucket].append(
+            chrom, pos, ref, alt, serialize_payload(hits, short_format=self.short_format)
+        )
+        self.denovo_segment_lines += 1
+        self.cumulative.denovo_variants += 1
+        self.cumulative.denovo_entries += len(hits)
+        self._denovo_per_variant[bucket].append(variant_key, len(hits))
+
+        bucket_state = self.bucket_stats.get(bucket)
+        if bucket_state is not None:
+            bucket_state.denovo_variants += 1
+            bucket_state.denovo_entries += len(hits)
+            bucket_state.detail_denovo_variants += 1
+            bucket_state.detail_denovo_entries += len(hits)
+
+        for person_id in hits:
+            self.cumulative.denovo_per_person[person_id] = (
+                self.cumulative.denovo_per_person.get(person_id, 0) + 1
+            )
+            self.detail_denovo_per_person[person_id] = (
+                self.detail_denovo_per_person.get(person_id, 0) + 1
+            )
+            if bucket_state is not None:
+                bucket_state.denovo_per_person[person_id] = (
+                    bucket_state.denovo_per_person.get(person_id, 0) + 1
+                )
+                bucket_state.detail_denovo_per_person[person_id] = (
+                    bucket_state.detail_denovo_per_person.get(person_id, 0) + 1
+                )
+        self._update_position(chrom, pos)
+        self._maybe_rotate_segment()
+
     def _update_position(self, chrom: str, pos: str) -> None:
         self.last_chrom = chrom
         self.last_pos = max(self.last_pos, int(pos))
@@ -436,6 +520,7 @@ class ResultWriter:
         if (
             self.inherited_segment_lines >= self.segment_size
             or self.mendelian_bad_segment_lines >= self.segment_size
+            or self.denovo_segment_lines >= self.segment_size
         ):
             self._finish_segment()
 
@@ -479,6 +564,7 @@ class ResultWriter:
                 include_details=False,
             )
         self._merge_inherited_per_variant_files()
+        self._merge_denovo_per_variant_files()
         self.save_summary_files()
 
     def _write_cumulative_stats(self) -> None:
@@ -496,6 +582,8 @@ class ResultWriter:
                     "inherited_variants": stats.inherited_variants,
                     "mendelian_bad_entries": stats.mendelian_bad_entries,
                     "mendelian_bad_variants": stats.mendelian_bad_variants,
+                    "denovo_entries": stats.denovo_entries,
+                    "denovo_variants": stats.denovo_variants,
                 }
                 for name, stats in self.bucket_stats.items()
             }
@@ -504,12 +592,15 @@ class ResultWriter:
     def _append_detail_delta(self) -> None:
         if (
             not self.detail_inherited_per_person
+            and not self.detail_denovo_per_person
             and not self.detail_mendelian_bad_per_gt
             and not any(
                 stats.detail_inherited_per_person
+                or stats.detail_denovo_per_person
                 or stats.detail_mendelian_bad_per_gt
                 or stats.detail_inherited_variants
                 or stats.detail_mendelian_bad_variants
+                or stats.detail_denovo_variants
                 for stats in self.bucket_stats.values()
             )
         ):
@@ -517,6 +608,7 @@ class ResultWriter:
         record: dict[str, Any] = {
             "segment_index": self.segment_index,
             "inherited_per_person": self.detail_inherited_per_person,
+            "denovo_per_person": self.detail_denovo_per_person,
             "mendelian_bad_per_gt": self.detail_mendelian_bad_per_gt,
         }
         if self.uses_named_buckets:
@@ -526,28 +618,37 @@ class ResultWriter:
                     "inherited_variants": stats.detail_inherited_variants,
                     "mendelian_bad_entries": stats.detail_mendelian_bad_entries,
                     "mendelian_bad_variants": stats.detail_mendelian_bad_variants,
+                    "denovo_entries": stats.detail_denovo_entries,
+                    "denovo_variants": stats.detail_denovo_variants,
                     "inherited_per_person": stats.detail_inherited_per_person,
+                    "denovo_per_person": stats.detail_denovo_per_person,
                     "mendelian_bad_per_gt": stats.detail_mendelian_bad_per_gt,
                 }
                 for name, stats in self.bucket_stats.items()
                 if (
                     stats.detail_inherited_per_person
+                    or stats.detail_denovo_per_person
                     or stats.detail_mendelian_bad_per_gt
                     or stats.detail_inherited_variants
                     or stats.detail_mendelian_bad_variants
+                    or stats.detail_denovo_variants
                 )
             }
         with self._detail_deltas_path().open("a", encoding="utf-8") as handle:
             json.dump(record, handle, separators=(",", ":"), sort_keys=True)
             handle.write("\n")
         self.detail_inherited_per_person.clear()
+        self.detail_denovo_per_person.clear()
         self.detail_mendelian_bad_per_gt.clear()
         for stats in self.bucket_stats.values():
             stats.detail_inherited_entries = 0
             stats.detail_inherited_variants = 0
             stats.detail_mendelian_bad_entries = 0
             stats.detail_mendelian_bad_variants = 0
+            stats.detail_denovo_entries = 0
+            stats.detail_denovo_variants = 0
             stats.detail_inherited_per_person.clear()
+            stats.detail_denovo_per_person.clear()
             stats.detail_mendelian_bad_per_gt.clear()
 
     def _write_detail_baseline(self, segment_index: int) -> None:
@@ -555,6 +656,7 @@ class ResultWriter:
         record: dict[str, Any] = {
             "segment_index": segment_index,
             "inherited_per_person": self.cumulative.inherited_per_person,
+            "denovo_per_person": self.cumulative.denovo_per_person,
             "mendelian_bad_per_gt": self.cumulative.mendelian_bad_per_gt,
         }
         with self._detail_deltas_path().open("w", encoding="utf-8") as handle:
@@ -569,13 +671,17 @@ class ResultWriter:
             )
 
         self.cumulative.inherited_per_person.clear()
+        self.cumulative.denovo_per_person.clear()
         self.cumulative.mendelian_bad_per_gt.clear()
         for stats in self.bucket_stats.values():
             stats.inherited_entries = 0
             stats.inherited_variants = 0
             stats.mendelian_bad_entries = 0
             stats.mendelian_bad_variants = 0
+            stats.denovo_entries = 0
+            stats.denovo_variants = 0
             stats.inherited_per_person.clear()
+            stats.denovo_per_person.clear()
             stats.mendelian_bad_per_gt.clear()
 
         pending_segment = -1
@@ -601,6 +707,10 @@ class ResultWriter:
                 self.cumulative.inherited_per_person.get(str(person_id), 0)
                 + int(count)
             )
+        for person_id, count in dict(record.get("denovo_per_person", {})).items():
+            self.cumulative.denovo_per_person[str(person_id)] = (
+                self.cumulative.denovo_per_person.get(str(person_id), 0) + int(count)
+            )
         for gt_key, count in dict(record.get("mendelian_bad_per_gt", {})).items():
             self.cumulative.mendelian_bad_per_gt[str(gt_key)] = (
                 self.cumulative.mendelian_bad_per_gt.get(str(gt_key), 0)
@@ -614,11 +724,17 @@ class ResultWriter:
             stats.mendelian_bad_variants += int(
                 payload.get("mendelian_bad_variants", 0)
             )
+            stats.denovo_entries += int(payload.get("denovo_entries", 0))
+            stats.denovo_variants += int(payload.get("denovo_variants", 0))
             for person_id, count in dict(
                 payload.get("inherited_per_person", {})
             ).items():
                 stats.inherited_per_person[str(person_id)] = (
                     stats.inherited_per_person.get(str(person_id), 0) + int(count)
+                )
+            for person_id, count in dict(payload.get("denovo_per_person", {})).items():
+                stats.denovo_per_person[str(person_id)] = (
+                    stats.denovo_per_person.get(str(person_id), 0) + int(count)
                 )
             for gt_key, count in dict(payload.get("mendelian_bad_per_gt", {})).items():
                 stats.mendelian_bad_per_gt[str(gt_key)] = (
@@ -626,16 +742,22 @@ class ResultWriter:
                 )
 
     def _merge_inherited_per_variant_files(self) -> None:
+        self._merge_per_variant_files("inherited")
+
+    def _merge_denovo_per_variant_files(self) -> None:
+        self._merge_per_variant_files("denovo")
+
+    def _merge_per_variant_files(self, kind: str) -> None:
         for bucket in self._bucket_names():
             if self.uses_named_buckets:
-                output_name = f"inherited_per_variant_{bucket}.json"
-                pattern = f"inherited_per_variant_{bucket}_seg*.json"
+                output_name = f"{kind}_per_variant_{bucket}.json"
+                pattern = f"{kind}_per_variant_{bucket}_seg*.json"
             else:
-                output_name = "inherited_per_variant.json"
-                pattern = "inherited_per_variant_seg*.json"
+                output_name = f"{kind}_per_variant.json"
+                pattern = f"{kind}_per_variant_seg*.json"
             output_path = self.output_dir / output_name
             if self.segment_size <= 0:
-                part_path = self._inherited_per_variant_path(bucket, self.segment_index)
+                part_path = self._per_variant_path(kind, bucket, self.segment_index)
                 if part_path.is_file():
                     part_path.replace(output_path)
                 else:
@@ -665,6 +787,10 @@ class ResultWriter:
                     stats.inherited_per_person,
                 )
                 write_json_atomic(
+                    self.output_dir / f"denovo_per_person_{bucket}.json",
+                    stats.denovo_per_person,
+                )
+                write_json_atomic(
                     self.output_dir / f"mendelian_bad_per_gt_{bucket}.json",
                     stats.mendelian_bad_per_gt,
                 )
@@ -675,12 +801,18 @@ class ResultWriter:
                         "inherited_variants": stats.inherited_variants,
                         "mendelian_bad_entries": stats.mendelian_bad_entries,
                         "mendelian_bad_variants": stats.mendelian_bad_variants,
+                        "denovo_entries": stats.denovo_entries,
+                        "denovo_variants": stats.denovo_variants,
                     },
                 )
         else:
             write_json_atomic(
                 self.output_dir / "inherited_per_person.json",
                 self.cumulative.inherited_per_person,
+            )
+            write_json_atomic(
+                self.output_dir / "denovo_per_person.json",
+                self.cumulative.denovo_per_person,
             )
             write_json_atomic(
                 self.output_dir / "mendelian_bad_per_gt.json",
@@ -696,6 +828,8 @@ class ResultWriter:
                 "inherited_variants": self.cumulative.inherited_variants,
                 "mendelian_bad_entries": self.cumulative.mendelian_bad_entries,
                 "mendelian_bad_variants": self.cumulative.mendelian_bad_variants,
+                "denovo_entries": self.cumulative.denovo_entries,
+                "denovo_variants": self.cumulative.denovo_variants,
                 "chrom_mode": self.chrom_mode,
             },
         )
@@ -709,12 +843,20 @@ class ResultWriter:
         return self.cumulative.mendelian_bad_entries
 
     @property
+    def denovo_entries(self) -> int:
+        return self.cumulative.denovo_entries
+
+    @property
     def inherited_variants(self) -> int:
         return self.cumulative.inherited_variants
 
     @property
     def mendelian_bad_variants(self) -> int:
         return self.cumulative.mendelian_bad_variants
+
+    @property
+    def denovo_variants(self) -> int:
+        return self.cumulative.denovo_variants
 
 
 def read_result_tsv(

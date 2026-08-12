@@ -21,6 +21,11 @@ from inherited.constants import (
     DEFAULT_MEMORY_BLOCK,
     DEFAULT_SEGMENT_SIZE,
 )
+from inherited.classify import (
+    classify_father_son,
+    classify_mother_son,
+    classify_trio,
+)
 from inherited.debug import log_memory_if_due
 from inherited.families import build_sexed_trio_indices, load_family_relations
 from inherited.genotype import get_good_site
@@ -60,8 +65,10 @@ class AnalysisStats:
     alleles_tested: int = 0
     inherited_entries: int = 0
     mendelian_bad_entries: int = 0
+    denovo_entries: int = 0
     inherited_variants: int = 0
     mendelian_bad_variants: int = 0
+    denovo_variants: int = 0
 
 
 def analyze_vcf(
@@ -196,8 +203,10 @@ def _stats_from_writer(writer: ResultWriter) -> AnalysisStats:
         alleles_tested=writer.cumulative.alleles_tested,
         inherited_entries=writer.inherited_entries,
         mendelian_bad_entries=writer.mendelian_bad_entries,
+        denovo_entries=writer.denovo_entries,
         inherited_variants=writer.inherited_variants,
         mendelian_bad_variants=writer.mendelian_bad_variants,
+        denovo_variants=writer.denovo_variants,
     )
 
 
@@ -436,6 +445,7 @@ def _process_trios_for_allele(
     parents_cache: dict[int, list[object]] = {}
     inherited_hits: dict[str, HitRecord] = {}
     bad_hits: dict[str, HitRecord] = {}
+    denovo_hits: dict[str, HitRecord] = {}
 
     for child_idx, mother_idx, father_idx in trios_ind:
         child_sample = sample_fields[child_idx]
@@ -464,29 +474,26 @@ def _process_trios_for_allele(
             )
             parents_cache[father_idx] = [fac, father_gt, father_gq]
 
-        pid = sample_header[child_idx]
-        bucket_name: str | None = None
-        record: HitRecord
-
-        if mac > 0 and fac > 0:
-            if mac == 2 and fac == 2 and ac < 2:
-                bucket_name = "mendelian_bad"
-            else:
-                bucket_name = "inherited"
-            record = (mother_gt, father_gt, child_gt, child_gq)
-        elif mac > 0:
-            bucket_name = "mendelian_bad" if ac == 2 else "inherited"
-            record = (mother_gt, "0/0", child_gt, child_gq)
-        elif fac > 0:
-            bucket_name = "mendelian_bad" if ac == 2 else "inherited"
-            record = ("0/0", father_gt, child_gt, child_gq)
-        else:
+        call_class = classify_trio(ac, mac, fac)
+        if call_class is None:
             continue
 
-        if bucket_name == "inherited":
-            inherited_hits[pid] = record
+        pid = sample_header[child_idx]
+        if mac > 0 and fac > 0:
+            record: HitRecord = (mother_gt, father_gt, child_gt, child_gq)
+        elif mac > 0:
+            record = (mother_gt, "0/0", child_gt, child_gq)
+        elif fac > 0:
+            record = ("0/0", father_gt, child_gt, child_gq)
         else:
+            record = (mother_gt, father_gt, child_gt, child_gq)
+
+        if call_class == "inherited":
+            inherited_hits[pid] = record
+        elif call_class == "mendelian_bad":
             bad_hits[pid] = record
+        else:
+            denovo_hits[pid] = record
 
     if inherited_hits:
         writer.write_inherited(
@@ -495,6 +502,10 @@ def _process_trios_for_allele(
     if bad_hits:
         writer.write_mendelian_bad(
             chrom, pos, ref, alt, bad_hits, bucket=bucket
+        )
+    if denovo_hits:
+        writer.write_denovo(
+            chrom, pos, ref, alt, variant_key, denovo_hits, bucket=bucket
         )
 
 
@@ -515,7 +526,7 @@ def _process_male_nonpar_pairs(
     """Classify male nonPAR chrX sites using mother-son pairs only."""
     mothers_cache: dict[int, list[object]] = {}
     inherited_hits: dict[str, HitRecord] = {}
-    bad_hits: dict[str, HitRecord] = {}
+    denovo_hits: dict[str, HitRecord] = {}
     bucket = male_x_bucket(int(pos))
 
     for child_idx, mother_idx, _father_idx in male_trios:
@@ -537,24 +548,24 @@ def _process_male_nonpar_pairs(
             )
             mothers_cache[mother_idx] = [mac, mother_gt, mother_gq]
 
-        # Mother failed diploid QC.
-        if mac < 0:
+        call_class = classify_mother_son(ac, mac)
+        if call_class is None:
             continue
 
         pid = sample_header[child_idx]
         record: HitRecord = (mother_gt, child_gt, child_gq)
-        if mac > 0:
+        if call_class == "inherited":
             inherited_hits[pid] = record
         else:
-            bad_hits[pid] = record
+            denovo_hits[pid] = record
 
     if inherited_hits:
         writer.write_inherited(
             chrom, pos, ref, alt, variant_key, inherited_hits, bucket=bucket
         )
-    if bad_hits:
-        writer.write_mendelian_bad(
-            chrom, pos, ref, alt, bad_hits, bucket=bucket
+    if denovo_hits:
+        writer.write_denovo(
+            chrom, pos, ref, alt, variant_key, denovo_hits, bucket=bucket
         )
 
 
@@ -575,7 +586,7 @@ def _process_y_allele(
     """Classify chrY sites using father-son pairs with haploid QC."""
     fathers_cache: dict[int, list[object]] = {}
     inherited_hits: dict[str, HitRecord] = {}
-    bad_hits: dict[str, HitRecord] = {}
+    denovo_hits: dict[str, HitRecord] = {}
     bucket = X_BUCKET_MALE_NONPAR
 
     for child_idx, _mother_idx, father_idx in male_trios:
@@ -600,24 +611,24 @@ def _process_y_allele(
             )
             fathers_cache[father_idx] = [fac, father_gt, father_gq]
 
-        # Father failed haploid QC.
-        if fac < 0:
+        call_class = classify_father_son(ac, fac)
+        if call_class is None:
             continue
 
         pid = sample_header[child_idx]
         record: HitRecord = (father_gt, child_gt, child_gq)
-        if fac > 0:
+        if call_class == "inherited":
             inherited_hits[pid] = record
         else:
-            bad_hits[pid] = record
+            denovo_hits[pid] = record
 
     if inherited_hits:
         writer.write_inherited(
             chrom, pos, ref, alt, variant_key, inherited_hits, bucket=bucket
         )
-    if bad_hits:
-        writer.write_mendelian_bad(
-            chrom, pos, ref, alt, bad_hits, bucket=bucket
+    if denovo_hits:
+        writer.write_denovo(
+            chrom, pos, ref, alt, variant_key, denovo_hits, bucket=bucket
         )
 
 
