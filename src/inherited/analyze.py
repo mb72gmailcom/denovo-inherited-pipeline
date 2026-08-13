@@ -28,7 +28,7 @@ from inherited.classify import (
 )
 from inherited.debug import log_memory_if_due
 from inherited.families import build_sexed_trio_indices, load_family_relations
-from inherited.genotype import get_good_site
+from inherited.genotype import get_good_site, is_hom_ref
 from inherited.output import HitRecord, ResultWriter
 from inherited.repeats import RepeatIntervalFilter
 from inherited.xchrom import (
@@ -474,19 +474,15 @@ def _process_trios_for_allele(
             )
             parents_cache[father_idx] = [fac, father_gt, father_gq]
 
-        call_class = classify_trio(ac, mac, fac)
+        if mac < 0 or fac < 0:
+            continue
+
+        call_class = classify_trio(ac, mac, fac, mother_gt, father_gt, child_gt)
         if call_class is None:
             continue
 
         pid = sample_header[child_idx]
-        if mac > 0 and fac > 0:
-            record: HitRecord = (mother_gt, father_gt, child_gt, child_gq)
-        elif mac > 0:
-            record = (mother_gt, "0/0", child_gt, child_gq)
-        elif fac > 0:
-            record = ("0/0", father_gt, child_gt, child_gq)
-        else:
-            record = (mother_gt, father_gt, child_gt, child_gq)
+        record: HitRecord = (mother_gt, father_gt, child_gt, child_gq)
 
         if call_class == "inherited":
             inherited_hits[pid] = record
@@ -551,6 +547,8 @@ def _process_male_nonpar_pairs(
         call_class = classify_mother_son(ac, mac)
         if call_class is None:
             continue
+        if call_class == "denovo" and not is_hom_ref(mother_gt):
+            continue
 
         pid = sample_header[child_idx]
         record: HitRecord = (mother_gt, child_gt, child_gq)
@@ -613,6 +611,8 @@ def _process_y_allele(
 
         call_class = classify_father_son(ac, fac)
         if call_class is None:
+            continue
+        if call_class == "denovo" and not is_hom_ref(father_gt):
             continue
 
         pid = sample_header[child_idx]

@@ -42,6 +42,33 @@ def _gt_alleles(gt: str) -> list[str]:
     return gt.replace("|", "/").split("/")
 
 
+def is_hom_ref(gt: str) -> bool:
+    """Return True when every allele in ``gt`` is reference (``0``)."""
+    alleles = _gt_alleles(gt)
+    return bool(alleles) and all(allele == "0" for allele in alleles)
+
+
+def is_mendelian_diploid(m_gt: str, f_gt: str, c_gt: str) -> bool:
+    """Return True if the child diploid genotype is Mendelian given both parents.
+
+    Checks whether there exist one maternal and one paternal allele that together
+    match the child's genotype (order-independent).
+    """
+    mother = _gt_alleles(m_gt)
+    father = _gt_alleles(f_gt)
+    child = _gt_alleles(c_gt)
+    if len(mother) != 2 or len(father) != 2 or len(child) != 2:
+        return False
+    if any(allele == "." for allele in mother + father + child):
+        return False
+    child_sorted = sorted(child)
+    for maternal in mother:
+        for paternal in father:
+            if sorted((maternal, paternal)) == child_sorted:
+                return True
+    return False
+
+
 def is_good(
     gt: str,
     dp: str,

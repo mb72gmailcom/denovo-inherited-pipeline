@@ -231,3 +231,37 @@ def test_analyze_chry_uses_only_male_nonpar_bucket(tmp_path):
     assert stats.inherited_variants == 1
     assert stats.denovo_variants == 1
     assert stats.mendelian_bad_variants == 0
+
+
+def test_multiallelic_denovo_requires_parental_hom_ref(tmp_path):
+    stats = analyze_vcf(
+        vcf_path=FIXTURES / "tiny_multi.vcf",
+        af_json_path=FIXTURES / "tiny_multi_af.json",
+        family_file=FIXTURES / "families.tsv",
+        output_dir=tmp_path / "out",
+        multiallelic=True,
+        segment_size=0,
+        block_size=1,
+        short_format=False,
+    )
+
+    denovo = read_result_tsv(tmp_path / "out" / "denovo.tsv", short_format=False)
+    bad = read_result_tsv(tmp_path / "out" / "mendelian_bad.tsv", short_format=False)
+    inherited = read_result_tsv(tmp_path / "out" / "inherited.tsv", short_format=False)
+
+    # Allele 3 with parents 0/2 is skipped; allele 2 with parents 0/0 is kept.
+    assert len(denovo) == 1
+    assert denovo[0][1] == "6000"
+    assert denovo[0][3] == "T"
+    assert denovo[0][4] == {"child1": ("0/0", "0/0", "0/2", "30")}
+
+    # Parents 0/2 x 0/2 with child 1/2 is Mendelian-inconsistent for allele 2.
+    assert len(bad) == 1
+    assert bad[0][1] == "5500"
+    assert bad[0][3] == "G"
+    assert bad[0][4] == {"child1": ("0/2", "0/2", "1/2", "30")}
+
+    assert len(inherited) == 0
+    assert stats.denovo_variants == 1
+    assert stats.mendelian_bad_variants == 1
+    assert stats.inherited_variants == 0

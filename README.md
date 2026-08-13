@@ -95,19 +95,21 @@ VCFs are expected to be split per chromosome. Contigs `X` and `chrX` use sex-awa
 
 - Female children: same diploid QC and inheritance rules as autosomes; one output bucket
 - Male PAR1 / PAR2 (hg38 closed intervals `[10001, 2781479]` and `[155701383, 156030895]`): same diploid trio logic as autosomes
-- Male nonPAR: mother–son pairs only (father ignored on chrX); child uses haploid QC (`DP≥5`, `AB≥0.85`, `GQ≥20`); mother uses diploid QC; inherited if `ac>0` and `mac>0`; denovo if `ac>0` and `mac==0`
+- Male nonPAR: mother–son pairs only (father ignored on chrX); child uses haploid QC (`DP≥5`, `AB≥0.85`, `GQ≥20`); mother uses diploid QC; inherited if `ac>0` and `mac>0`; denovo if `ac>0` and `mac==0` with mother genotype homozygous reference
 
 Diploid call classes (autosomes, female chrX, male PAR):
 
-- inherited / mendelian_bad: existing Mendelian rules when at least one parent carries the alt
-- denovo: `ac>0` and `mac==0` and `fac==0` (both parents good-quality non-carriers)
+- Skip the trio if either parent fails QC (`mac < 0` or `fac < 0`)
+- denovo: `ac>0` and `mac==0` and `fac==0`, and both parental genotypes are homozygous reference (`0/0`). Parents that lack this alt but carry another allele at a multiallelic site (e.g. `0/2` when testing allele 3) are skipped
+- inherited: at least one parent carries this alt and the full trio genotypes are Mendelian-compatible; stored parental genotypes are the real calls (no synthetic `0/0`)
+- mendelian_bad: at least one parent carries this alt but the child genotype is not Mendelian given both parents (covers multiallelic cases such as parents `0/2`,`0/2` with child `1/2`)
 
 ## Chromosome Y
 
 Contigs `Y` and `chrY` are treated as nonPAR only. Analysis loops over male children and father–son pairs:
 
 - Child and father both use haploid QC (`DP≥5`, `AB≥0.85`, `GQ≥20`)
-- Inherited if `ac>0` and `fac>0`; denovo if `ac>0` and `fac==0`
+- Inherited if `ac>0` and `fac>0`; denovo if `ac>0` and `fac==0` with father genotype homozygous reference
 - Father haploid QC failure skips the pair
 - Output uses only the `males_nonPar` bucket (no empty PAR/female files)
 - Full format: `child_id=father_gt|child_gt|child_gq`

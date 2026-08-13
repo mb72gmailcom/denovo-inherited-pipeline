@@ -10,7 +10,7 @@ from inherited.classify import (
     classify_trio,
 )
 from inherited.families import load_family_relations, normalize_sex
-from inherited.genotype import get_good_site, is_good
+from inherited.genotype import get_good_site, is_good, is_hom_ref, is_mendelian_diploid
 from inherited.xchrom import chrom_mode_for, is_x_chrom, is_y_chrom, male_x_bucket, x_region
 
 
@@ -152,23 +152,27 @@ def test_get_good_site_returns_negative_one_when_not_good():
 
 
 @pytest.mark.parametrize(
-    ("ac", "mac", "fac", "expected"),
+    ("ac", "mac", "fac", "m_gt", "f_gt", "c_gt", "expected"),
     [
-        (1, 2, 2, "mendelian_bad"),
-        (2, 2, 2, "inherited"),
-        (2, 1, 0, "mendelian_bad"),
-        (1, 1, 0, "inherited"),
-        (2, 0, 1, "mendelian_bad"),
-        (1, 0, 1, "inherited"),
-        (1, 0, 0, "denovo"),
-        (2, 0, 0, "denovo"),
-        (1, -1, 0, None),
-        (1, 0, -1, None),
-        (0, 0, 0, None),
+        (1, 2, 2, "1/1", "1/1", "0/1", "mendelian_bad"),
+        (2, 2, 2, "1/1", "1/1", "1/1", "inherited"),
+        (2, 1, 0, "0/1", "0/0", "1/1", "mendelian_bad"),
+        (1, 1, 0, "0/1", "0/0", "0/1", "inherited"),
+        (2, 0, 1, "0/0", "0/1", "1/1", "mendelian_bad"),
+        (1, 0, 1, "0/0", "0/1", "0/1", "inherited"),
+        (1, 0, 0, "0/0", "0/0", "0/1", "denovo"),
+        (2, 0, 0, "0/0", "0/0", "1/1", "denovo"),
+        (1, -1, 0, "0/1", "0/0", "0/1", None),
+        (1, 0, -1, "0/0", "0/1", "0/1", None),
+        (0, 0, 0, "0/0", "0/0", "0/0", None),
+        # Multiallelic: allele-2 counts look inherited, but child has unexplained allele 1.
+        (1, 1, 1, "0/2", "0/2", "1/2", "mendelian_bad"),
+        (1, 1, 1, "0/2", "0/2", "0/2", "inherited"),
+        (1, 0, 0, "0/2", "0/2", "0/3", None),
     ],
 )
-def test_classify_trio(ac, mac, fac, expected):
-    assert classify_trio(ac, mac, fac) == expected
+def test_classify_trio(ac, mac, fac, m_gt, f_gt, c_gt, expected):
+    assert classify_trio(ac, mac, fac, m_gt, f_gt, c_gt) == expected
 
 
 @pytest.mark.parametrize(
@@ -195,6 +199,44 @@ def test_classify_mother_son(ac, mac, expected):
 )
 def test_classify_father_son(ac, fac, expected):
     assert classify_father_son(ac, fac) == expected
+
+
+@pytest.mark.parametrize(
+    ("gt", "expected"),
+    [
+        ("0/0", True),
+        ("0|0", True),
+        ("0", True),
+        ("0/1", False),
+        ("0/2", False),
+        ("1/1", False),
+        (".", False),
+        ("0/.", False),
+    ],
+)
+def test_is_hom_ref(gt, expected):
+    assert is_hom_ref(gt) is expected
+
+
+@pytest.mark.parametrize(
+    ("m_gt", "f_gt", "c_gt", "expected"),
+    [
+        ("0/0", "0/1", "0/1", True),
+        ("0/1", "0/0", "0/1", True),
+        ("0/1", "0/1", "0/1", True),
+        ("0/1", "0/1", "1/1", True),
+        ("1/1", "1/1", "1/1", True),
+        ("1/1", "1/1", "0/1", False),
+        ("0/0", "0/0", "0/1", False),
+        ("0/2", "0/2", "0/2", True),
+        ("0/2", "0/2", "1/2", False),
+        ("0/2", "0/1", "1/2", True),
+        ("0/1", ".", "0/1", False),
+        ("0", "0/1", "0/1", False),
+    ],
+)
+def test_is_mendelian_diploid(m_gt, f_gt, c_gt, expected):
+    assert is_mendelian_diploid(m_gt, f_gt, c_gt) is expected
 
 
 def test_x_region_and_buckets():
