@@ -152,27 +152,28 @@ def test_get_good_site_returns_negative_one_when_not_good():
 
 
 @pytest.mark.parametrize(
-    ("ac", "mac", "fac", "m_gt", "f_gt", "c_gt", "expected"),
+    ("ac", "mac", "fac", "m_gt", "f_gt", "c_gt", "alt_index", "expected"),
     [
-        (1, 2, 2, "1/1", "1/1", "0/1", "mendelian_bad"),
-        (2, 2, 2, "1/1", "1/1", "1/1", "inherited"),
-        (2, 1, 0, "0/1", "0/0", "1/1", "mendelian_bad"),
-        (1, 1, 0, "0/1", "0/0", "0/1", "inherited"),
-        (2, 0, 1, "0/0", "0/1", "1/1", "mendelian_bad"),
-        (1, 0, 1, "0/0", "0/1", "0/1", "inherited"),
-        (1, 0, 0, "0/0", "0/0", "0/1", "denovo"),
-        (2, 0, 0, "0/0", "0/0", "1/1", "denovo"),
-        (1, -1, 0, "0/1", "0/0", "0/1", None),
-        (1, 0, -1, "0/0", "0/1", "0/1", None),
-        (0, 0, 0, "0/0", "0/0", "0/0", None),
+        (1, 2, 2, "1/1", "1/1", "0/1", 1, "mendelian_bad"),
+        (2, 2, 2, "1/1", "1/1", "1/1", 1, "inherited"),
+        (2, 1, 0, "0/1", "0/0", "1/1", 1, "mendelian_bad"),
+        (1, 1, 0, "0/1", "0/0", "0/1", 1, "inherited"),
+        (2, 0, 1, "0/0", "0/1", "1/1", 1, "mendelian_bad"),
+        (1, 0, 1, "0/0", "0/1", "0/1", 1, "inherited"),
+        (1, 0, 0, "0/0", "0/0", "0/1", 1, "denovo"),
+        (2, 0, 0, "0/0", "0/0", "1/1", 1, "denovo"),
+        (1, -1, 0, "0/1", "0/0", "0/1", 1, None),
+        (1, 0, -1, "0/0", "0/1", "0/1", 1, None),
+        (0, 0, 0, "0/0", "0/0", "0/0", 1, None),
         # Multiallelic: allele-2 counts look inherited, but child has unexplained allele 1.
-        (1, 1, 1, "0/2", "0/2", "1/2", "mendelian_bad"),
-        (1, 1, 1, "0/2", "0/2", "0/2", "inherited"),
-        (1, 0, 0, "0/2", "0/2", "0/3", None),
+        (1, 1, 1, "0/2", "0/2", "1/2", 2, "mendelian_bad"),
+        (1, 1, 1, "0/2", "0/2", "0/2", 2, "inherited"),
+        (1, 0, 0, "0/2", "0/2", "0/3", 3, None),
+        (1, 1, 1, "0/2", "0/1", "1/2", 2, "inherited"),
     ],
 )
-def test_classify_trio(ac, mac, fac, m_gt, f_gt, c_gt, expected):
-    assert classify_trio(ac, mac, fac, m_gt, f_gt, c_gt) == expected
+def test_classify_trio(ac, mac, fac, m_gt, f_gt, c_gt, alt_index, expected):
+    assert classify_trio(ac, mac, fac, m_gt, f_gt, c_gt, alt_index) == expected
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,9 @@
+{
+  "multi_a": 0.001,
+  "multi_b": 0.001,
+  "multi_c": 0.001,
+  "multi_bad_a": 0.001,
+  "multi_bad_b": 0.001,
+  "multi_dn_a": 0.001,
+  "multi_dn_b": 0.001
+}

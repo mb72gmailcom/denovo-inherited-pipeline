@@ -42,10 +42,35 @@ def _gt_alleles(gt: str) -> list[str]:
     return gt.replace("|", "/").split("/")
 
 
+def _diploid_alleles(gt: str) -> tuple[str, str] | None:
+    """Parse a diploid GT into two allele strings, or None if unusable."""
+    # Common unphased/phased single-digit forms: "0/1", "0|1".
+    if len(gt) == 3 and gt[1] in "/|":
+        left, right = gt[0], gt[2]
+        if left == "." or right == ".":
+            return None
+        return left, right
+
+    alleles = _gt_alleles(gt)
+    if len(alleles) != 2 or alleles[0] == "." or alleles[1] == ".":
+        return None
+    return alleles[0], alleles[1]
+
+
 def is_hom_ref(gt: str) -> bool:
     """Return True when every allele in ``gt`` is reference (``0``)."""
+    if gt in ("0/0", "0|0", "0"):
+        return True
     alleles = _gt_alleles(gt)
     return bool(alleles) and all(allele == "0" for allele in alleles)
+
+
+def alleles_only_ref_and_alt(gt: str, alt_token: str) -> bool:
+    """True when GT uses only reference and the queried alt (no other alts)."""
+    alleles = _diploid_alleles(gt)
+    if alleles is None:
+        return False
+    return all(allele == "0" or allele == alt_token for allele in alleles)
 
 
 def is_mendelian_diploid(m_gt: str, f_gt: str, c_gt: str) -> bool:
@@ -54,17 +79,18 @@ def is_mendelian_diploid(m_gt: str, f_gt: str, c_gt: str) -> bool:
     Checks whether there exist one maternal and one paternal allele that together
     match the child's genotype (order-independent).
     """
-    mother = _gt_alleles(m_gt)
-    father = _gt_alleles(f_gt)
-    child = _gt_alleles(c_gt)
-    if len(mother) != 2 or len(father) != 2 or len(child) != 2:
+    mother = _diploid_alleles(m_gt)
+    father = _diploid_alleles(f_gt)
+    child = _diploid_alleles(c_gt)
+    if mother is None or father is None or child is None:
         return False
-    if any(allele == "." for allele in mother + father + child):
-        return False
-    child_sorted = sorted(child)
+
+    c0, c1 = child
     for maternal in mother:
         for paternal in father:
-            if sorted((maternal, paternal)) == child_sorted:
+            if (maternal == c0 and paternal == c1) or (
+                maternal == c1 and paternal == c0
+            ):
                 return True
     return False
 

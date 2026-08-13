@@ -1,0 +1,12 @@
+##fileformat=VCFv4.2
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">
+##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allelic depths">
+##FORMAT=<ID=SB,Number=4,Type=Integer,Description="Strand bias">
+##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype quality">
+##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Phred likelihoods">
+##FORMAT=<ID=RNC,Number=1,Type=String,Description="Unused">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	child1	fa1	ma1
+22	5000	multi_a;multi_b;multi_c	A	C,G,T	.	.	.	GT:DP:AD:SB:GQ:PL:RNC	0/3:30:15,0,0,15:0,0,0,0:30:0,30,30:.	0/2:30:15,0,15,0:0,0,0,0:30:0,30,30:.	0/2:30:15,0,15,0:0,0,0,0:30:0,30,30:.
+22	5500	multi_bad_a;multi_bad_b	A	C,G	.	.	.	GT:DP:AD:SB:GQ:PL:RNC	1/2:30:0,15,15:0,0,0,0:30:0,30,30:.	0/2:30:15,0,15:0,0,0,0:30:0,30,30:.	0/2:30:15,0,15:0,0,0,0:30:0,30,30:.
+22	6000	multi_dn_a;multi_dn_b	A	C,T	.	.	.	GT:DP:AD:SB:GQ:PL:RNC	0/2:30:15,0,15:0,0,0,0:30:0,30,30:.	0/0:30:30,0,0:0,0,0,0:30:0,30,30:.	0/0:30:30,0,0:0,0,0,0:30:0,30,30:.

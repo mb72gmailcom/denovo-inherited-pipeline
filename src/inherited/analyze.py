@@ -477,7 +477,9 @@ def _process_trios_for_allele(
         if mac < 0 or fac < 0:
             continue
 
-        call_class = classify_trio(ac, mac, fac, mother_gt, father_gt, child_gt)
+        call_class = classify_trio(
+            ac, mac, fac, mother_gt, father_gt, child_gt, alt_index
+        )
         if call_class is None:
             continue
 
