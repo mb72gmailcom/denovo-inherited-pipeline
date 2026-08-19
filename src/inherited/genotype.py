@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from inherited.constants import (
     DEFAULT_AB,
+    DEFAULT_AB_HOM,
     DEFAULT_DP,
     DEFAULT_GQ,
     DEFAULT_HAPLO_AB,
@@ -106,8 +107,11 @@ def is_good(
     clean_missing_ad_as_zero: bool = False,
     dp_min: int = DEFAULT_DP,
     ab_min: float = DEFAULT_AB,
+    ab_hom_min: float = DEFAULT_AB_HOM,
     gq_min: int = DEFAULT_GQ,
     alleles: list[str] | None = None,
+    ac: int | None = None,
+    haploid: bool = False,
 ) -> bool:
     if "." in gt:
         return False
@@ -123,18 +127,22 @@ def is_good(
     ads = _parse_ad_field(ad, clean_missing_as_zero=clean_missing_ad_as_zero)
     if ads is None or len(ads) <= alt_index:
         return False
-    if sum(ads) == 0:
+    total = sum(ads)
+    if total == 0:
         return False
 
-    # Require sufficient alt support only when the genotype includes that alt.
-    # Homozygous-reference calls are allowed through with DP/GQ alone.
     parsed = alleles if alleles is not None else _gt_alleles(gt)
-    has_alt = any(
-        allele.isdigit() and int(allele) == alt_index for allele in parsed
-    )
-    if has_alt and ads[alt_index] / sum(ads) < ab_min:
-        return False
-    return True
+    if ac is None:
+        ac = sum(allele.isdigit() and int(allele) == alt_index for allele in parsed)
+    if ac <= 0:
+        return True
+
+    ab = ads[alt_index] / total
+    if haploid:
+        return ab >= ab_min
+    if ac == 1:
+        return ab_min <= ab <= 1.0 - ab_min
+    return ab >= ab_hom_min
 
 
 def get_good_site(
@@ -155,7 +163,8 @@ def get_good_site(
     not reject all alleles at the site.
 
     When ``haploid`` is True, use haploid depth/AB thresholds while still counting
-    alternate alleles from the GT field.
+    alternate alleles from the GT field. Diploid sites use a het AB band
+    ``[ab_min, 1 - ab_min]`` and a separate homozygous-alt floor ``ab_hom_min``.
 
     When ``skip_qc_if_no_alt`` is True and the genotype carries no copies of the
     queried alt, return ``(0, gt, gq)`` without DP/AD/GQ checks. Used for child
@@ -187,6 +196,8 @@ def get_good_site(
         dp_min=dp_min,
         ab_min=ab_min,
         alleles=alleles,
+        ac=ac,
+        haploid=haploid,
     ):
         return ac, gt, gq
     return -1, ".", "0"

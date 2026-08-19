@@ -12,6 +12,7 @@ from inherited.af import is_rare, load_af_json
 from inherited.checkpoint import load_checkpoint
 from inherited.constants import (
     DEFAULT_AB,
+    DEFAULT_AB_HOM,
     DEFAULT_AF_THRESHOLD,
     DEFAULT_BLOCK_SIZE,
     DEFAULT_DP,
@@ -673,6 +674,7 @@ def save_run_params(
             "gq": DEFAULT_GQ,
             "dp": DEFAULT_DP,
             "ab": DEFAULT_AB,
+            "ab_hom": DEFAULT_AB_HOM,
             "haplo_dp": DEFAULT_HAPLO_DP,
             "haplo_ab": DEFAULT_HAPLO_AB,
         },

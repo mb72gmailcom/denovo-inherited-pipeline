@@ -88,6 +88,17 @@ def test_is_good_allows_homozygous_reference():
     assert is_good("0/0", "30", "30,0", "0,0,0,0", "30", 1)
 
 
+def test_is_good_diploid_het_ab_band():
+    assert is_good("0/1", "30", "15,15", "0,0,0,0", "30", 1)
+    assert not is_good("0/1", "30", "18,2", "0,0,0,0", "30", 1)
+    assert not is_good("0/1", "30", "2,18", "0,0,0,0", "30", 1)
+
+
+def test_is_good_diploid_hom_alt_ab_floor():
+    assert is_good("1/1", "30", "3,27", "0,0,0,0", "30", 1)
+    assert not is_good("1/1", "30", "6,24", "0,0,0,0", "30", 1)
+
+
 def test_is_good_multiallelic_cleans_missing_ad_as_zero():
     assert not is_good("0/1", "30", "10,4,.,6", "0,0,0,0", "30", 2, clean_missing_ad_as_zero=True)
     assert not is_good("0/1", "30", "10,4,.,6", "0,0,0,0", "30", 1, clean_missing_ad_as_zero=True)

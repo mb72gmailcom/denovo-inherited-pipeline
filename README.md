@@ -89,6 +89,12 @@ python run.py analyze \
 
 Repeat files are whitespace-separated ``chrom start end`` rows with half-open intervals ``[start, end)``.
 
+## Quality filters
+
+Diploid QC (autosomes, female chrX, male PAR): `DP≥10`, `GQ≥20`. Allele balance applies only when the genotype carries the queried alt: heterozygotes (`ac==1`) require `0.25 ≤ AB ≤ 0.75`; homozygous-alt (`ac≥2`) require `AB≥0.9`. Homozygous-reference calls skip AB.
+
+Haploid QC (male chrX nonPAR, chrY): `DP≥5`, `GQ≥20`, and `AB≥0.85` when the genotype carries the alt.
+
 ## Chromosome X
 
 VCFs are expected to be split per chromosome. Contigs `X` and `chrX` use sex-aware logic:
