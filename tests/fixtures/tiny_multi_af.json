@@ -5,5 +5,7 @@
   "multi_bad_a": 0.001,
   "multi_bad_b": 0.001,
   "multi_dn_a": 0.001,
-  "multi_dn_b": 0.001
+  "multi_dn_b": 0.001,
+  "multi_dn_mix_a": 0.001,
+  "multi_dn_mix_b": 0.001
 }

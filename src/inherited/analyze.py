@@ -232,11 +232,10 @@ def _process_multiallelic_line(
     for alt_index, key in enumerate(skeys, start=1):
         if alt_index > len(salts):
             break
-        if not is_rare(af_table, key, af_threshold):
-            continue
-
         alt = salts[alt_index - 1]
         if len(alt) > 1:
+            continue
+        if not is_rare(af_table, key, af_threshold):
             continue
         alleles_to_process.append((alt_index, key, alt))
 

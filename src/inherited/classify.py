@@ -22,9 +22,10 @@ def classify_trio(
         ``inherited``, ``mendelian_bad``, ``denovo``, or ``None`` to skip.
 
     Both parents must pass QC (``mac >= 0`` and ``fac >= 0``). Denovo requires
-    homozygous-reference parental genotypes. When genotypes only use ref and the
-    queried alt, cheap allele-count dosage rules are enough; full Mendelian
-    checking runs only when another allele appears (typical multiallelic case).
+    homozygous-reference parental genotypes and a child genotype that uses only
+    ref and the queried alt (so ``0/0 × 0/0 → 1/2`` is not denovo). When
+    genotypes only use ref and the queried alt, cheap allele-count dosage rules
+    are enough; full Mendelian checking runs only when another allele appears.
     """
     if ac <= 0:
         return None
@@ -32,9 +33,11 @@ def classify_trio(
         return None
 
     if mac == 0 and fac == 0:
-        if is_hom_ref(m_gt) and is_hom_ref(f_gt):
+        if not (is_hom_ref(m_gt) and is_hom_ref(f_gt)):
+            return None
+        if alleles_only_ref_and_alt(c_gt, str(alt_index)):
             return "denovo"
-        return None
+        return "mendelian_bad"
 
     # Dosage patterns that can never be Mendelian for this alt.
     if mac == 2 and fac == 2 and ac == 1:

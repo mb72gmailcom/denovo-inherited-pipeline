@@ -100,9 +100,9 @@ VCFs are expected to be split per chromosome. Contigs `X` and `chrX` use sex-awa
 Diploid call classes (autosomes, female chrX, male PAR):
 
 - Skip the trio if either parent fails QC (`mac < 0` or `fac < 0`)
-- denovo: `ac>0` and `mac==0` and `fac==0`, and both parental genotypes are homozygous reference (`0/0`). Parents that lack this alt but carry another allele at a multiallelic site (e.g. `0/2` when testing allele 3) are skipped
+- denovo: `ac>0` and `mac==0` and `fac==0`, both parents `0/0`, and the child genotype uses only ref and this alt (e.g. `0/1` or `1/1`). Child `1/2` from `0/0 × 0/0` is `mendelian_bad`, not denovo. Parents that lack this alt but carry another allele (e.g. `0/2` when testing allele 3) are skipped
 - inherited: at least one parent carries this alt and the full trio genotypes are Mendelian-compatible; stored parental genotypes are the real calls (no synthetic `0/0`)
-- mendelian_bad: at least one parent carries this alt but the child genotype is not Mendelian given both parents (covers multiallelic cases such as parents `0/2`,`0/2` with child `1/2`)
+- mendelian_bad: the child genotype is not Mendelian given both parents (including `0/2 × 0/2 → 1/2`, and `0/0 × 0/0 → 1/2`)
 
 ## Chromosome Y
 

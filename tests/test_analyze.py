@@ -255,13 +255,15 @@ def test_multiallelic_denovo_requires_parental_hom_ref(tmp_path):
     assert denovo[0][3] == "T"
     assert denovo[0][4] == {"child1": ("0/0", "0/0", "0/2", "30")}
 
+    bad_by_pos = {(rec[1], rec[3]): rec[4] for rec in bad}
     # Parents 0/2 x 0/2 with child 1/2 is Mendelian-inconsistent for allele 2.
-    assert len(bad) == 1
-    assert bad[0][1] == "5500"
-    assert bad[0][3] == "G"
-    assert bad[0][4] == {"child1": ("0/2", "0/2", "1/2", "30")}
+    assert bad_by_pos[("5500", "G")] == {"child1": ("0/2", "0/2", "1/2", "30")}
+    # Parents 0/0 x 0/0 with child 1/2 is not a clean denovo of either alt.
+    assert bad_by_pos[("6500", "C")] == {"child1": ("0/0", "0/0", "1/2", "30")}
+    assert bad_by_pos[("6500", "G")] == {"child1": ("0/0", "0/0", "1/2", "30")}
+    assert len(bad) == 3
 
     assert len(inherited) == 0
     assert stats.denovo_variants == 1
-    assert stats.mendelian_bad_variants == 1
+    assert stats.mendelian_bad_variants == 3
     assert stats.inherited_variants == 0
