@@ -11,14 +11,8 @@ from inherited import __version__
 from inherited.af import is_rare, load_af_json
 from inherited.checkpoint import load_checkpoint
 from inherited.constants import (
-    DEFAULT_AB,
-    DEFAULT_AB_HOM,
     DEFAULT_AF_THRESHOLD,
     DEFAULT_BLOCK_SIZE,
-    DEFAULT_DP,
-    DEFAULT_GQ,
-    DEFAULT_HAPLO_AB,
-    DEFAULT_HAPLO_DP,
     DEFAULT_MEMORY_BLOCK,
     DEFAULT_SEGMENT_SIZE,
 )
@@ -29,7 +23,7 @@ from inherited.classify import (
 )
 from inherited.debug import log_memory_if_due
 from inherited.families import build_sexed_trio_indices, load_family_relations
-from inherited.genotype import get_good_site, is_hom_ref
+from inherited.genotype import DEFAULT_QUALITY, QualityFilters, get_good_site, is_hom_ref
 from inherited.output import HitRecord, ResultWriter
 from inherited.repeats import RepeatIntervalFilter
 from inherited.xchrom import (
@@ -87,6 +81,7 @@ def analyze_vcf(
     short_format: bool = True,
     resume: bool = False,
     repeats_path: Path | None = None,
+    qc: QualityFilters = DEFAULT_QUALITY,
 ) -> AnalysisStats:
     """Scan a VCF, classify trios, and stream results to segmented TSV files."""
     if resume and segment_size <= 0:
@@ -171,6 +166,7 @@ def analyze_vcf(
                         all_trios,
                         sample_header,
                         writer,
+                        qc=qc,
                     )
                 else:
                     _process_biallelic_line(
@@ -182,6 +178,7 @@ def analyze_vcf(
                         all_trios,
                         sample_header,
                         writer,
+                        qc=qc,
                     )
 
                 log_memory_if_due(
@@ -220,6 +217,8 @@ def _process_multiallelic_line(
     all_trios: list[tuple[int, int, int]],
     sample_header: list[str],
     writer: ResultWriter,
+    *,
+    qc: QualityFilters,
 ) -> None:
     chrom, pos, keys, ref, alts = get_nfields(line, 5)
     if len(ref) > 1:
@@ -260,6 +259,7 @@ def _process_multiallelic_line(
             all_trios,
             writer,
             clean_ad=True,
+            qc=qc,
         )
 
 
@@ -272,6 +272,8 @@ def _process_biallelic_line(
     all_trios: list[tuple[int, int, int]],
     sample_header: list[str],
     writer: ResultWriter,
+    *,
+    qc: QualityFilters,
 ) -> None:
     chrom, pos, key, ref, alt = get_nfields(line, 5)
     if len(ref) > 1 and len(alt) > 1:
@@ -295,6 +297,7 @@ def _process_biallelic_line(
         male_trios,
         all_trios,
         writer,
+        qc=qc,
     )
 
 
@@ -313,6 +316,7 @@ def _process_allele(
     writer: ResultWriter,
     *,
     clean_ad: bool = False,
+    qc: QualityFilters,
 ) -> None:
     if writer.x_mode:
         _process_x_allele(
@@ -328,6 +332,7 @@ def _process_allele(
             male_trios,
             writer,
             clean_ad=clean_ad,
+            qc=qc,
         )
         return
 
@@ -344,6 +349,7 @@ def _process_allele(
             male_trios,
             writer,
             clean_ad=clean_ad,
+            qc=qc,
         )
         return
 
@@ -360,6 +366,7 @@ def _process_allele(
         writer,
         clean_ad=clean_ad,
         bucket="",
+        qc=qc,
     )
 
 
@@ -377,6 +384,7 @@ def _process_x_allele(
     writer: ResultWriter,
     *,
     clean_ad: bool = False,
+    qc: QualityFilters,
 ) -> None:
     _process_trios_for_allele(
         chrom,
@@ -391,6 +399,7 @@ def _process_x_allele(
         writer,
         clean_ad=clean_ad,
         bucket=X_BUCKET_FEMALES,
+        qc=qc,
     )
 
     pos_int = int(pos)
@@ -408,6 +417,7 @@ def _process_x_allele(
             male_trios,
             writer,
             clean_ad=clean_ad,
+            qc=qc,
         )
         return
 
@@ -424,6 +434,7 @@ def _process_x_allele(
         writer,
         clean_ad=clean_ad,
         bucket=male_x_bucket(pos_int),
+        qc=qc,
     )
 
 
@@ -441,6 +452,7 @@ def _process_trios_for_allele(
     *,
     clean_ad: bool = False,
     bucket: str = "",
+    qc: QualityFilters,
 ) -> None:
     parents_cache: dict[int, list[object]] = {}
     inherited_hits: dict[str, HitRecord] = {}
@@ -454,6 +466,7 @@ def _process_trios_for_allele(
             alt_index,
             clean_ad=clean_ad,
             skip_qc_if_no_alt=True,
+            qc=qc,
         )
         if ac <= 0:
             continue
@@ -462,7 +475,7 @@ def _process_trios_for_allele(
             mac, mother_gt, mother_gq = parents_cache[mother_idx]
         else:
             mac, mother_gt, mother_gq = get_good_site(
-                sample_fields[mother_idx], alt_index, clean_ad=clean_ad
+                sample_fields[mother_idx], alt_index, clean_ad=clean_ad, qc=qc
             )
             parents_cache[mother_idx] = [mac, mother_gt, mother_gq]
 
@@ -470,7 +483,7 @@ def _process_trios_for_allele(
             fac, father_gt, father_gq = parents_cache[father_idx]
         else:
             fac, father_gt, father_gq = get_good_site(
-                sample_fields[father_idx], alt_index, clean_ad=clean_ad
+                sample_fields[father_idx], alt_index, clean_ad=clean_ad, qc=qc
             )
             parents_cache[father_idx] = [fac, father_gt, father_gq]
 
@@ -520,6 +533,7 @@ def _process_male_nonpar_pairs(
     writer: ResultWriter,
     *,
     clean_ad: bool = False,
+    qc: QualityFilters,
 ) -> None:
     """Classify male nonPAR chrX sites using mother-son pairs only."""
     mothers_cache: dict[int, list[object]] = {}
@@ -534,6 +548,7 @@ def _process_male_nonpar_pairs(
             clean_ad=clean_ad,
             haploid=True,
             skip_qc_if_no_alt=True,
+            qc=qc,
         )
         if ac <= 0:
             continue
@@ -542,7 +557,7 @@ def _process_male_nonpar_pairs(
             mac, mother_gt, mother_gq = mothers_cache[mother_idx]
         else:
             mac, mother_gt, mother_gq = get_good_site(
-                sample_fields[mother_idx], alt_index, clean_ad=clean_ad
+                sample_fields[mother_idx], alt_index, clean_ad=clean_ad, qc=qc
             )
             mothers_cache[mother_idx] = [mac, mother_gt, mother_gq]
 
@@ -582,6 +597,7 @@ def _process_y_allele(
     writer: ResultWriter,
     *,
     clean_ad: bool = False,
+    qc: QualityFilters,
 ) -> None:
     """Classify chrY sites using father-son pairs with haploid QC."""
     fathers_cache: dict[int, list[object]] = {}
@@ -596,6 +612,7 @@ def _process_y_allele(
             clean_ad=clean_ad,
             haploid=True,
             skip_qc_if_no_alt=True,
+            qc=qc,
         )
         if ac <= 0:
             continue
@@ -608,6 +625,7 @@ def _process_y_allele(
                 alt_index,
                 clean_ad=clean_ad,
                 haploid=True,
+                qc=qc,
             )
             fathers_cache[father_idx] = [fac, father_gt, father_gq]
 
@@ -649,6 +667,7 @@ def save_run_params(
     short_format: bool = True,
     resume: bool = False,
     repeats_path: Path | None = None,
+    qc: QualityFilters = DEFAULT_QUALITY,
 ) -> Path:
     """Write the parameters for this run into the chromosome output directory."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -670,14 +689,7 @@ def save_run_params(
         "short_format": short_format,
         "resume": resume,
         "remove_repeats": str(repeats_path.resolve()) if repeats_path is not None else None,
-        "quality_filters": {
-            "gq": DEFAULT_GQ,
-            "dp": DEFAULT_DP,
-            "ab": DEFAULT_AB,
-            "ab_hom": DEFAULT_AB_HOM,
-            "haplo_dp": DEFAULT_HAPLO_DP,
-            "haplo_ab": DEFAULT_HAPLO_AB,
-        },
+        "quality_filters": qc.as_params(),
     }
     with params_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)

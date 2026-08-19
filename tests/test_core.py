@@ -10,7 +10,7 @@ from inherited.classify import (
     classify_trio,
 )
 from inherited.families import load_family_relations, normalize_sex
-from inherited.genotype import get_good_site, is_good, is_hom_ref, is_mendelian_diploid
+from inherited.genotype import QualityFilters, get_good_site, is_good, is_hom_ref, is_mendelian_diploid
 from inherited.xchrom import chrom_mode_for, is_x_chrom, is_y_chrom, male_x_bucket, x_region
 
 
@@ -137,6 +137,15 @@ def test_get_good_site_haploid_thresholds():
     assert get_good_site(low_ab, 1, haploid=True) == (-1, ".", "0")
     high_ab = "1/1:10:1,9:0,0,0,0:30:0,30,30:."
     assert get_good_site(high_ab, 1, haploid=True) == (2, "1/1", "30")
+
+
+def test_get_good_site_respects_custom_qc():
+    sample = "0/1:30:15,15:0,0,0,0:25:0,30,30:."
+    assert get_good_site(sample, 1) == (1, "0/1", "25")
+    assert get_good_site(sample, 1, qc=QualityFilters(gq=30)) == (-1, ".", "0")
+    unbalanced = "0/1:30:18,2:0,0,0,0:30:0,30,30:."
+    assert get_good_site(unbalanced, 1) == (-1, ".", "0")
+    assert get_good_site(unbalanced, 1, qc=QualityFilters(ab=0.1)) == (1, "0/1", "30")
 
 
 def test_get_good_site_multiallelic_clean_ad():

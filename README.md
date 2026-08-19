@@ -95,6 +95,24 @@ Diploid QC (autosomes, female chrX, male PAR): `DP≥10`, `GQ≥20`. Allele bala
 
 Haploid QC (male chrX nonPAR, chrY): `DP≥5`, `GQ≥20`, and `AB≥0.85` when the genotype carries the alt.
 
+Override any of these from the command line (omitted flags use the defaults above):
+
+```bash
+python run.py analyze \
+  --vcf chr22.vcf.gz \
+  --af-json gnomad_chr22.json \
+  --family-file families.tsv \
+  -o results/chr22 \
+  --gq-threshold 20 \
+  --dp-threshold 10 \
+  --dp-haploid-threshold 5 \
+  --ab-threshold 0.25 \
+  --ab-hom-threshold 0.9 \
+  --ab-haploid-threshold 0.85
+```
+
+`--ab-threshold` is the diploid heterozygous half-band: het AB must fall in `[value, 1-value]`. Applied values are written to `params.json` under `quality_filters`.
+
 ## Chromosome X
 
 VCFs are expected to be split per chromosome. Contigs `X` and `chrX` use sex-aware logic:

@@ -6,11 +6,18 @@ from pathlib import Path
 
 from inherited.analyze import analyze_vcf, save_run_params
 from inherited.constants import (
+    DEFAULT_AB,
+    DEFAULT_AB_HOM,
     DEFAULT_AF_THRESHOLD,
     DEFAULT_BLOCK_SIZE,
+    DEFAULT_DP,
+    DEFAULT_GQ,
+    DEFAULT_HAPLO_AB,
+    DEFAULT_HAPLO_DP,
     DEFAULT_MEMORY_BLOCK,
     DEFAULT_SEGMENT_SIZE,
 )
+from inherited.genotype import QualityFilters
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,6 +62,45 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_AF_THRESHOLD,
         help=f"Maximum gnomAD AF to include (default: {DEFAULT_AF_THRESHOLD})",
+    )
+    analyze.add_argument(
+        "--gq-threshold",
+        type=int,
+        default=DEFAULT_GQ,
+        help=f"Minimum genotype quality (default: {DEFAULT_GQ})",
+    )
+    analyze.add_argument(
+        "--dp-threshold",
+        type=int,
+        default=DEFAULT_DP,
+        help=f"Minimum diploid depth (default: {DEFAULT_DP})",
+    )
+    analyze.add_argument(
+        "--dp-haploid-threshold",
+        type=int,
+        default=DEFAULT_HAPLO_DP,
+        help=f"Minimum haploid depth for male nonPAR chrX/chrY (default: {DEFAULT_HAPLO_DP})",
+    )
+    analyze.add_argument(
+        "--ab-threshold",
+        type=float,
+        default=DEFAULT_AB,
+        help=(
+            "Diploid heterozygous allele-balance half-band; het AB must fall in "
+            f"[value, 1-value] (default: {DEFAULT_AB})"
+        ),
+    )
+    analyze.add_argument(
+        "--ab-hom-threshold",
+        type=float,
+        default=DEFAULT_AB_HOM,
+        help=f"Minimum diploid homozygous-alt allele balance (default: {DEFAULT_AB_HOM})",
+    )
+    analyze.add_argument(
+        "--ab-haploid-threshold",
+        type=float,
+        default=DEFAULT_HAPLO_AB,
+        help=f"Minimum haploid allele balance when the alt is present (default: {DEFAULT_HAPLO_AB})",
     )
     analyze.add_argument(
         "--debug",
@@ -123,6 +169,14 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(1)
 
         try:
+            qc = QualityFilters(
+                gq=args.gq_threshold,
+                dp=args.dp_threshold,
+                ab=args.ab_threshold,
+                ab_hom=args.ab_hom_threshold,
+                haplo_dp=args.dp_haploid_threshold,
+                haplo_ab=args.ab_haploid_threshold,
+            )
             stats = analyze_vcf(
                 vcf_path=args.vcf,
                 af_json_path=args.af_json,
@@ -137,6 +191,7 @@ def main(argv: list[str] | None = None) -> None:
                 short_format=args.short_format,
                 resume=args.resume,
                 repeats_path=args.remove_repeats,
+                qc=qc,
             )
         except (FileNotFoundError, ValueError) as exc:
             print(f"error: {exc}", file=sys.stderr)
@@ -156,6 +211,7 @@ def main(argv: list[str] | None = None) -> None:
             short_format=args.short_format,
             resume=args.resume,
             repeats_path=args.remove_repeats,
+            qc=qc,
         )
         output_label = (
             "segmented TSV files"

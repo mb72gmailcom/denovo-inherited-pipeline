@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
+
 from inherited.constants import (
     DEFAULT_AB,
     DEFAULT_AB_HOM,
@@ -8,6 +10,24 @@ from inherited.constants import (
     DEFAULT_HAPLO_AB,
     DEFAULT_HAPLO_DP,
 )
+
+
+@dataclass(frozen=True)
+class QualityFilters:
+    """Per-run genotype QC thresholds. Defaults match ``constants.py``."""
+
+    gq: int = DEFAULT_GQ
+    dp: int = DEFAULT_DP
+    ab: float = DEFAULT_AB
+    ab_hom: float = DEFAULT_AB_HOM
+    haplo_dp: int = DEFAULT_HAPLO_DP
+    haplo_ab: float = DEFAULT_HAPLO_AB
+
+    def as_params(self) -> dict[str, int | float]:
+        return asdict(self)
+
+
+DEFAULT_QUALITY = QualityFilters()
 
 
 def _parse_int_field(value: str) -> int | None:
@@ -152,6 +172,7 @@ def get_good_site(
     clean_ad: bool = False,
     haploid: bool = False,
     skip_qc_if_no_alt: bool = False,
+    qc: QualityFilters = DEFAULT_QUALITY,
 ) -> tuple[int, str, str]:
     """Return allele count, GT, and GQ for one alternate allele.
 
@@ -183,8 +204,8 @@ def get_good_site(
     if skip_qc_if_no_alt and ac == 0:
         return 0, gt, gq
 
-    dp_min = DEFAULT_HAPLO_DP if haploid else DEFAULT_DP
-    ab_min = DEFAULT_HAPLO_AB if haploid else DEFAULT_AB
+    dp_min = qc.haplo_dp if haploid else qc.dp
+    ab_min = qc.haplo_ab if haploid else qc.ab
     if is_good(
         gt,
         dp,
@@ -195,6 +216,8 @@ def get_good_site(
         clean_missing_ad_as_zero=clean_ad,
         dp_min=dp_min,
         ab_min=ab_min,
+        ab_hom_min=qc.ab_hom,
+        gq_min=qc.gq,
         alleles=alleles,
         ac=ac,
         haploid=haploid,
