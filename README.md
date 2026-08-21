@@ -37,12 +37,12 @@ Required columns: `spid`, `sfid`, `father`, `mother`, `sex`. Extra columns are i
 
 Complete trios (`father` and `mother` both not `0`) with a recognized sex are used for analysis. Sex values: males `1` / `Male` / `male`; females `2` / `Female` / `female`. Children with missing or unrecognized sex are skipped on all chromosomes.
 
-## gnomAD AF JSON
+## gnomAD common-af.json
 
 ```json
 {
-  "var_key": 0.0001,
-  "22:12345:A:G": {"AF": 0.001, "AF_EUR": 0.0005}
+  "var_key": 0.1,
+  "chr22_12345_A_G" : 0.1,...}
 }
 ```
 
