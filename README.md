@@ -42,7 +42,7 @@ Complete trios (`father` and `mother` both not `0`) with a recognized sex are us
 ```json
 {
   "var_key": 0.1,
-  "chr22_12345_A_G" : 0.1,...}
+  "chr22_12345_A_G" : 0.1,...
 }
 ```
 
