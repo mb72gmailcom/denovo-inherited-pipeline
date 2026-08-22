@@ -18,6 +18,7 @@ from inherited.constants import (
     DEFAULT_SEGMENT_SIZE,
 )
 from inherited.genotype import QualityFilters
+from inherited.shards import discover_vcf_shards
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,7 +32,29 @@ def build_parser() -> argparse.ArgumentParser:
         "analyze",
         help="Analyze a VCF using gnomAD AF JSON and family relations",
     )
-    analyze.add_argument("--vcf", required=True, type=Path, help="Input VCF (.vcf or .vcf.gz)")
+    vcf_input = analyze.add_mutually_exclusive_group(required=True)
+    vcf_input.add_argument(
+        "--vcf",
+        type=Path,
+        help="Input VCF (.vcf or .vcf.gz)",
+    )
+    vcf_input.add_argument(
+        "--vcf-dir",
+        type=Path,
+        help="Directory of split pVCF shards named {pattern}.{chr}_{start}_{end}.vcf.gz",
+    )
+    analyze.add_argument(
+        "--vcf-pattern",
+        help=(
+            "Filename prefix for --vcf-dir shards named "
+            "{pattern}.{chr}_{start}_{end}.vcf.gz"
+        ),
+    )
+    analyze.add_argument(
+        "--chr",
+        dest="chrom",
+        help="Contig token used with --vcf-dir (e.g. chr2). Required with --vcf-dir.",
+    )
     analyze.add_argument(
         "--af-json",
         required=True,
@@ -125,7 +148,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_SEGMENT_SIZE,
         help=(
-            f"Max result lines per output segment; 0 disables segmentation "
+            f"Max result lines per output segment when using --vcf; 0 disables "
+            f"segmentation. Ignored with --vcf-dir, where each input shard "
+            f"writes files labeled {{start}}_{{end}} "
             f"(default: {DEFAULT_SEGMENT_SIZE})"
         ),
     )
@@ -155,9 +180,27 @@ def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
 
     if args.command == "analyze":
-        if not args.vcf.is_file():
-            print(f"error: VCF not found: {args.vcf}", file=sys.stderr)
-            raise SystemExit(1)
+        vcf_shards = None
+        if args.vcf_dir is not None:
+            if not args.vcf_pattern:
+                print("error: --vcf-dir requires --vcf-pattern", file=sys.stderr)
+                raise SystemExit(1)
+            if not args.chrom:
+                print("error: --vcf-dir requires --chr", file=sys.stderr)
+                raise SystemExit(1)
+            if not args.vcf_dir.is_dir():
+                print(f"error: VCF directory not found: {args.vcf_dir}", file=sys.stderr)
+                raise SystemExit(1)
+        else:
+            if args.vcf_pattern or args.chrom:
+                print(
+                    "error: --vcf-pattern and --chr require --vcf-dir",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+            if not args.vcf.is_file():
+                print(f"error: VCF not found: {args.vcf}", file=sys.stderr)
+                raise SystemExit(1)
         if not args.af_json.is_file():
             print(f"error: AF JSON not found: {args.af_json}", file=sys.stderr)
             raise SystemExit(1)
@@ -169,6 +212,10 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(1)
 
         try:
+            if args.vcf_dir is not None:
+                vcf_shards = discover_vcf_shards(
+                    args.vcf_dir, args.vcf_pattern, args.chrom
+                )
             qc = QualityFilters(
                 gq=args.gq_threshold,
                 dp=args.dp_threshold,
@@ -182,6 +229,7 @@ def main(argv: list[str] | None = None) -> None:
                 af_json_path=args.af_json,
                 family_file=args.family_file,
                 output_dir=args.output_dir,
+                vcf_shards=vcf_shards,
                 multiallelic=args.multiallelic,
                 af_threshold=args.af_threshold,
                 debug=args.debug,
@@ -200,6 +248,10 @@ def main(argv: list[str] | None = None) -> None:
         params_path = save_run_params(
             args.output_dir,
             vcf_path=args.vcf,
+            vcf_dir=args.vcf_dir,
+            vcf_pattern=args.vcf_pattern,
+            chrom=args.chrom,
+            vcf_files=[shard.path for shard in vcf_shards] if vcf_shards else None,
             af_json_path=args.af_json,
             family_file=args.family_file,
             multiallelic=args.multiallelic,
@@ -213,11 +265,12 @@ def main(argv: list[str] | None = None) -> None:
             repeats_path=args.remove_repeats,
             qc=qc,
         )
-        output_label = (
-            "segmented TSV files"
-            if args.segment_size > 0
-            else "inherited.tsv / mendelian_bad.tsv / denovo.tsv"
-        )
+        if vcf_shards is not None:
+            output_label = "shard-labeled TSV files"
+        elif args.segment_size > 0:
+            output_label = "segmented TSV files"
+        else:
+            output_label = "inherited.tsv / mendelian_bad.tsv / denovo.tsv"
         print(
             f"Wrote {stats.inherited_entries} inherited entries "
             f"({stats.inherited_variants} variants), "

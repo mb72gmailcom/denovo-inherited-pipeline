@@ -85,3 +85,30 @@ def test_result_writer_restores_details_from_compact_checkpoint(tmp_path):
     )
     assert resumed.cumulative.inherited_per_person == {"p1": 1}
     resumed.close()
+
+
+def test_result_writer_labels_shard_files_by_coordinates(tmp_path):
+    writer = ResultWriter(tmp_path, block_size=1, segment_size=1, shard_mode=True)
+    writer.begin_shard(1, 2500)
+    writer.write_denovo(
+        "22", "1000", "A", "G", "variant_a", {"p1": ("0/0", "0/0", "0/1", "30")}
+    )
+    writer.begin_shard(2501, 5000)
+    writer.write_inherited(
+        "22", "3000", "A", "G", "variant_b", {"p1": ("0/0", "0/1", "0/1", "30")}
+    )
+    writer.close()
+    writer.finalize()
+
+    assert (tmp_path / "denovo_1_2500.tsv").is_file()
+    assert (tmp_path / "inherited_2501_5000.tsv").is_file()
+    assert not (tmp_path / "inherited_00000.tsv").exists()
+    assert json.loads((tmp_path / "inherited_per_variant.json").read_text()) == {
+        "variant_b": 1
+    }
+    assert json.loads((tmp_path / "denovo_per_variant.json").read_text()) == {
+        "variant_a": 1
+    }
+    checkpoint = load_checkpoint(tmp_path)
+    assert checkpoint is not None
+    assert checkpoint.shard_end == 5000

@@ -26,6 +26,7 @@ from inherited.families import build_sexed_trio_indices, load_family_relations
 from inherited.genotype import DEFAULT_QUALITY, QualityFilters, get_good_site, is_hom_ref
 from inherited.output import HitRecord, ResultWriter
 from inherited.repeats import RepeatIntervalFilter
+from inherited.shards import VcfShard
 from inherited.xchrom import (
     CHROM_MODE_AUTOSOMAL,
     X_BUCKET_FEMALES,
@@ -67,11 +68,12 @@ class AnalysisStats:
 
 
 def analyze_vcf(
-    vcf_path: Path,
+    vcf_path: Path | None,
     af_json_path: Path,
     family_file: Path,
     output_dir: Path,
     *,
+    vcf_shards: list[VcfShard] | None = None,
     multiallelic: bool = True,
     af_threshold: float = DEFAULT_AF_THRESHOLD,
     debug: bool = False,
@@ -84,8 +86,17 @@ def analyze_vcf(
     qc: QualityFilters = DEFAULT_QUALITY,
 ) -> AnalysisStats:
     """Scan a VCF, classify trios, and stream results to segmented TSV files."""
-    if resume and segment_size <= 0:
+    if (vcf_path is None) == (vcf_shards is None):
+        raise ValueError("Specify exactly one of vcf_path or vcf_shards")
+    shard_mode = vcf_shards is not None
+    if resume and segment_size <= 0 and not shard_mode:
         raise ValueError("--resume requires --segment-size > 0")
+
+    if vcf_shards is not None:
+        shards = list(vcf_shards)
+    else:
+        assert vcf_path is not None
+        shards = [VcfShard(path=vcf_path, chrom="", start=0, end=0)]
 
     af_table = load_af_json(af_json_path)
     relations = load_family_relations(family_file)
@@ -108,6 +119,7 @@ def analyze_vcf(
                 if checkpoint.chrom
                 else CHROM_MODE_AUTOSOMAL
             ),
+            shard_mode=shard_mode,
         )
         resume_last_pos = checkpoint.last_pos
     else:
@@ -116,6 +128,7 @@ def analyze_vcf(
             block_size=block_size,
             segment_size=segment_size,
             short_format=short_format,
+            shard_mode=shard_mode,
         )
         resume_last_pos = -1
 
@@ -126,66 +139,79 @@ def analyze_vcf(
             repeat_filter.advance_past(resume_last_pos)
 
     try:
-        opener = gzip.open if str(vcf_path).endswith(".gz") else open
-        with opener(vcf_path, "rt", encoding="utf-8") as handle:
-            female_trios: list[tuple[int, int, int]] = []
-            male_trios: list[tuple[int, int, int]] = []
-            all_trios: list[tuple[int, int, int]] = []
-            sample_header: list[str] = []
-            mode_set = False
+        female_trios: list[tuple[int, int, int]] = []
+        male_trios: list[tuple[int, int, int]] = []
+        all_trios: list[tuple[int, int, int]] = []
+        sample_header: list[str] = []
+        mode_set = False
 
-            for line in handle:
-                if line.startswith("##"):
-                    continue
-                if line.startswith("#CHROM"):
-                    sample_header = line.strip().split("\t")[9:]
-                    female_trios, male_trios = build_sexed_trio_indices(
-                        sample_header, relations
+        for shard in shards:
+            if shard_mode and shard.end <= resume_last_pos:
+                continue
+            if shard_mode:
+                writer.begin_shard(shard.start, shard.end)
+
+            opener = gzip.open if str(shard.path).endswith(".gz") else open
+            with opener(shard.path, "rt", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.startswith("##"):
+                        continue
+                    if line.startswith("#CHROM"):
+                        header = line.strip().split("\t")[9:]
+                        if sample_header:
+                            if header != sample_header:
+                                raise ValueError(
+                                    f"Sample header mismatch in {shard.path}"
+                                )
+                            continue
+                        sample_header = header
+                        female_trios, male_trios = build_sexed_trio_indices(
+                            sample_header, relations
+                        )
+                        all_trios = female_trios + male_trios
+                        continue
+
+                    pos = get_position(line)
+                    if pos <= resume_last_pos:
+                        continue
+                    if repeat_filter is not None and repeat_filter.in_repeat(pos):
+                        continue
+
+                    if not mode_set:
+                        chrom = get_nfields(line, 1)[0]
+                        writer.set_chrom_mode(chrom_mode_for(chrom))
+                        mode_set = True
+
+                    if multiallelic:
+                        _process_multiallelic_line(
+                            line,
+                            af_table,
+                            af_threshold,
+                            female_trios,
+                            male_trios,
+                            all_trios,
+                            sample_header,
+                            writer,
+                            qc=qc,
+                        )
+                    else:
+                        _process_biallelic_line(
+                            line,
+                            af_table,
+                            af_threshold,
+                            female_trios,
+                            male_trios,
+                            all_trios,
+                            sample_header,
+                            writer,
+                            qc=qc,
+                        )
+
+                    log_memory_if_due(
+                        writer.cumulative.variants_seen,
+                        debug=debug,
+                        memory_block=memory_block,
                     )
-                    all_trios = female_trios + male_trios
-                    continue
-
-                pos = get_position(line)
-                if pos <= resume_last_pos:
-                    continue
-                if repeat_filter is not None and repeat_filter.in_repeat(pos):
-                    continue
-
-                if not mode_set:
-                    chrom = get_nfields(line, 1)[0]
-                    writer.set_chrom_mode(chrom_mode_for(chrom))
-                    mode_set = True
-
-                if multiallelic:
-                    _process_multiallelic_line(
-                        line,
-                        af_table,
-                        af_threshold,
-                        female_trios,
-                        male_trios,
-                        all_trios,
-                        sample_header,
-                        writer,
-                        qc=qc,
-                    )
-                else:
-                    _process_biallelic_line(
-                        line,
-                        af_table,
-                        af_threshold,
-                        female_trios,
-                        male_trios,
-                        all_trios,
-                        sample_header,
-                        writer,
-                        qc=qc,
-                    )
-
-                log_memory_if_due(
-                    writer.cumulative.variants_seen,
-                    debug=debug,
-                    memory_block=memory_block,
-                )
     finally:
         if repeat_filter is not None:
             repeat_filter.close()
@@ -655,7 +681,11 @@ def _process_y_allele(
 def save_run_params(
     output_dir: Path,
     *,
-    vcf_path: Path,
+    vcf_path: Path | None = None,
+    vcf_dir: Path | None = None,
+    vcf_pattern: str | None = None,
+    chrom: str | None = None,
+    vcf_files: list[Path] | None = None,
     af_json_path: Path,
     family_file: Path,
     multiallelic: bool,
@@ -676,7 +706,6 @@ def save_run_params(
     payload: dict[str, Any] = {
         "package_version": __version__,
         "run_at": datetime.now(timezone.utc).isoformat(),
-        "vcf": str(vcf_path.resolve()),
         "af_json": str(af_json_path.resolve()),
         "family_file": str(family_file.resolve()),
         "output_dir": str(output_dir.resolve()),
@@ -691,6 +720,15 @@ def save_run_params(
         "remove_repeats": str(repeats_path.resolve()) if repeats_path is not None else None,
         "quality_filters": qc.as_params(),
     }
+    if vcf_path is not None:
+        payload["vcf"] = str(vcf_path.resolve())
+    if vcf_dir is not None:
+        payload["vcf_dir"] = str(vcf_dir.resolve())
+        payload["vcf_pattern"] = vcf_pattern
+        payload["chr"] = chrom
+        payload["vcf_files"] = [
+            str(path.resolve()) for path in (vcf_files or [])
+        ]
     with params_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
     return params_path

@@ -200,6 +200,9 @@ class ResultWriter:
     detail_mendelian_bad_per_gt: dict[str, int] = field(default_factory=dict)
     bucket_stats: dict[str, BucketStats] = field(default_factory=dict)
     resume_mode: bool = False
+    shard_mode: bool = False
+    shard_start: int | None = None
+    shard_end: int | None = None
     _writers_ready: bool = False
     _inherited: dict[str, BlockWriter] = field(default_factory=dict, repr=False)
     _mendelian_bad: dict[str, BlockWriter] = field(default_factory=dict, repr=False)
@@ -216,7 +219,7 @@ class ResultWriter:
         if not self.resume_mode:
             self._detail_deltas_path().write_text("", encoding="utf-8")
         self._init_bucket_stats()
-        if self.resume_mode:
+        if self.resume_mode and not self.shard_mode:
             self._open_segment_writers()
             self._writers_ready = True
 
@@ -230,6 +233,7 @@ class ResultWriter:
         segment_size: int = DEFAULT_SEGMENT_SIZE,
         short_format: bool = True,
         chrom_mode: str = CHROM_MODE_AUTOSOMAL,
+        shard_mode: bool = False,
     ) -> ResultWriter:
         writer = cls(
             output_dir=output_dir,
@@ -242,6 +246,7 @@ class ResultWriter:
             last_chrom=checkpoint.chrom,
             last_pos=checkpoint.last_pos,
             resume_mode=True,
+            shard_mode=shard_mode,
         )
         if checkpoint.details_external:
             writer._load_detail_deltas(checkpoint.segment_index)
@@ -290,11 +295,15 @@ class ResultWriter:
             return Y_BUCKETS
         return ("",)
 
-    def _result_path(self, kind: str, bucket: str, segment_index: int) -> Path:
+    def _kind_stem(self, kind: str, bucket: str) -> str:
         if self.uses_named_buckets:
-            stem = f"{kind}_{bucket}"
-        else:
-            stem = kind
+            return f"{kind}_{bucket}"
+        return kind
+
+    def _result_path(self, kind: str, bucket: str, segment_index: int) -> Path:
+        stem = self._kind_stem(kind, bucket)
+        if self.shard_mode:
+            return self.output_dir / f"{stem}_{self.shard_start}_{self.shard_end}.tsv"
         if self.segment_size <= 0:
             return self.output_dir / f"{stem}.tsv"
         return self.output_dir / f"{stem}_{segment_index:05d}.tsv"
@@ -302,10 +311,9 @@ class ResultWriter:
     def _per_variant_path(
         self, kind: str, bucket: str, segment_index: int
     ) -> Path:
-        if self.uses_named_buckets:
-            stem = f"{kind}_per_variant_{bucket}"
-        else:
-            stem = f"{kind}_per_variant"
+        stem = self._kind_stem(f"{kind}_per_variant", bucket)
+        if self.shard_mode:
+            return self.output_dir / f"{stem}_{self.shard_start}_{self.shard_end}.json"
         if self.segment_size <= 0:
             return self.output_dir / f".{stem}.json.part"
         return self.output_dir / f"{stem}_seg{segment_index:05d}.json"
@@ -337,6 +345,8 @@ class ResultWriter:
         self._denovo_per_variant.clear()
 
     def _open_segment_writers(self) -> None:
+        if self.shard_mode and (self.shard_start is None or self.shard_end is None):
+            raise ValueError("begin_shard() must be called before opening shard writers")
         self._close_writers()
         for bucket in self._bucket_names():
             self._inherited[bucket] = BlockWriter(
@@ -363,6 +373,17 @@ class ResultWriter:
         self.inherited_segment_lines = 0
         self.mendelian_bad_segment_lines = 0
         self.denovo_segment_lines = 0
+
+    def begin_shard(self, start: int, end: int) -> None:
+        """Rotate output files to a genomic shard labeled ``{start}_{end}``."""
+        if start > end:
+            raise ValueError(f"Invalid shard coordinates: start {start} > end {end}")
+        if self._writers_ready:
+            self._finish_segment(open_next=False)
+        self.shard_start = start
+        self.shard_end = end
+        if self._writers_ready:
+            self._open_segment_writers()
 
     def write_inherited(
         self,
@@ -515,7 +536,7 @@ class ResultWriter:
         self.last_pos = max(self.last_pos, int(pos))
 
     def _maybe_rotate_segment(self) -> None:
-        if self.segment_size <= 0:
+        if self.shard_mode or self.segment_size <= 0:
             return
         if (
             self.inherited_segment_lines >= self.segment_size
@@ -524,23 +545,32 @@ class ResultWriter:
         ):
             self._finish_segment()
 
-    def _finish_segment(self) -> None:
+    def _checkpoint(self, *, completed: bool) -> Checkpoint:
+        last_pos = self.last_pos
+        if self.shard_mode and self.shard_end is not None:
+            last_pos = max(last_pos, self.shard_end)
+        return Checkpoint(
+            chrom=self.last_chrom,
+            last_pos=last_pos,
+            segment_index=self.segment_index,
+            cumulative=self.cumulative,
+            completed=completed,
+            shard_start=self.shard_start if self.shard_mode else None,
+            shard_end=self.shard_end if self.shard_mode else None,
+        )
+
+    def _finish_segment(self, *, open_next: bool = True) -> None:
         self._close_writers()
         self._append_detail_delta()
         self._write_cumulative_stats()
         save_checkpoint(
             self.output_dir,
-            Checkpoint(
-                chrom=self.last_chrom,
-                last_pos=self.last_pos,
-                segment_index=self.segment_index,
-                cumulative=self.cumulative,
-                completed=False,
-            ),
+            self._checkpoint(completed=False),
             include_details=False,
         )
         self.segment_index += 1
-        self._open_segment_writers()
+        if open_next:
+            self._open_segment_writers()
 
     def close(self) -> None:
         if self._writers_ready:
@@ -551,16 +581,10 @@ class ResultWriter:
             self.set_chrom_mode(self.chrom_mode)
         self._append_detail_delta()
         self._write_cumulative_stats()
-        if self.segment_size > 0 or completed:
+        if self.shard_mode or self.segment_size > 0 or completed:
             save_checkpoint(
                 self.output_dir,
-                Checkpoint(
-                    chrom=self.last_chrom,
-                    last_pos=self.last_pos,
-                    segment_index=self.segment_index,
-                    cumulative=self.cumulative,
-                    completed=completed,
-                ),
+                self._checkpoint(completed=completed),
                 include_details=False,
             )
         self._merge_inherited_per_variant_files()
@@ -749,14 +773,13 @@ class ResultWriter:
 
     def _merge_per_variant_files(self, kind: str) -> None:
         for bucket in self._bucket_names():
-            if self.uses_named_buckets:
-                output_name = f"{kind}_per_variant_{bucket}.json"
-                pattern = f"{kind}_per_variant_{bucket}_seg*.json"
+            stem = self._kind_stem(f"{kind}_per_variant", bucket)
+            output_path = self.output_dir / f"{stem}.json"
+            if self.shard_mode:
+                pattern = f"{stem}_*_*.json"
             else:
-                output_name = f"{kind}_per_variant.json"
-                pattern = f"{kind}_per_variant_seg*.json"
-            output_path = self.output_dir / output_name
-            if self.segment_size <= 0:
+                pattern = f"{stem}_seg*.json"
+            if not self.shard_mode and self.segment_size <= 0:
                 part_path = self._per_variant_path(kind, bucket, self.segment_index)
                 if part_path.is_file():
                     part_path.replace(output_path)
@@ -767,6 +790,8 @@ class ResultWriter:
             merged = JsonObjectStreamWriter(output_path.with_suffix(".json.tmp"))
             try:
                 for path in sorted(self.output_dir.glob(pattern)):
+                    if path == output_path:
+                        continue
                     with path.open(encoding="utf-8") as handle:
                         for line in handle:
                             entry = line.strip()
@@ -879,8 +904,18 @@ def read_result_tsv(
 
 
 def glob_result_tsvs(output_dir: Path, prefix: str) -> list[Path]:
-    segmented = sorted(output_dir.glob(f"{prefix}_*.tsv"))
+    segmented = list(output_dir.glob(f"{prefix}_*.tsv"))
     if segmented:
-        return segmented
+        return sorted(segmented, key=_result_tsv_sort_key)
     single = output_dir / f"{prefix}.tsv"
     return [single] if single.is_file() else []
+
+
+def _result_tsv_sort_key(path: Path) -> tuple[int, int, int, str]:
+    name = path.stem
+    parts = name.split("_")
+    if len(parts) >= 2 and parts[-1].isdigit() and parts[-2].isdigit():
+        return (1, int(parts[-2]), int(parts[-1]), name)
+    if parts[-1].isdigit():
+        return (0, int(parts[-1]), 0, name)
+    return (2, 0, 0, name)

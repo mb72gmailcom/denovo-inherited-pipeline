@@ -6,8 +6,26 @@ import pytest
 from inherited.analyze import analyze_vcf
 from inherited.checkpoint import Checkpoint, CumulativeStats, load_checkpoint, save_checkpoint
 from inherited.output import glob_result_tsvs, read_result_tsv, serialize_payload
+from inherited.shards import VcfShard
 
 FIXTURES = Path(__file__).parent / "fixtures"
+VCF_HEADER = "".join(
+    line
+    for line in (FIXTURES / "tiny.vcf").read_text(encoding="utf-8").splitlines(True)
+    if line.startswith("#")
+)
+
+
+def _write_shard(path: Path, record_lines: list[str]) -> None:
+    path.write_text(VCF_HEADER + "".join(record_lines), encoding="utf-8")
+
+
+def _tiny_record_lines() -> list[str]:
+    return [
+        line
+        for line in (FIXTURES / "tiny.vcf").read_text(encoding="utf-8").splitlines(True)
+        if not line.startswith("#")
+    ]
 
 
 def test_analyze_vcf_writes_short_format_single_file(tmp_path):
@@ -267,3 +285,104 @@ def test_multiallelic_denovo_requires_parental_hom_ref(tmp_path):
     assert stats.denovo_variants == 1
     assert stats.mendelian_bad_variants == 3
     assert stats.inherited_variants == 0
+
+
+def _two_tiny_shards(directory: Path) -> list[VcfShard]:
+    directory.mkdir(parents=True, exist_ok=True)
+    records = _tiny_record_lines()
+    first = directory / "callset.chr22_1_2500.vcf"
+    second = directory / "callset.chr22_2501_5000.vcf"
+    _write_shard(first, records[:2])
+    _write_shard(second, records[2:])
+    return [
+        VcfShard(path=first, chrom="chr22", start=1, end=2500),
+        VcfShard(path=second, chrom="chr22", start=2501, end=5000),
+    ]
+
+
+def test_analyze_vcf_shards_label_output_by_coordinates(tmp_path):
+    shards = _two_tiny_shards(tmp_path / "vcf")
+    out = tmp_path / "out"
+    stats = analyze_vcf(
+        vcf_path=None,
+        af_json_path=FIXTURES / "tiny_af.json",
+        family_file=FIXTURES / "families.tsv",
+        output_dir=out,
+        vcf_shards=shards,
+        segment_size=1,
+        block_size=1,
+    )
+
+    inherited_files = glob_result_tsvs(out, "inherited")
+    denovo_files = glob_result_tsvs(out, "denovo")
+    bad_files = glob_result_tsvs(out, "mendelian_bad")
+    assert [path.name for path in inherited_files] == [
+        "inherited_1_2500.tsv",
+        "inherited_2501_5000.tsv",
+    ]
+    assert [path.name for path in denovo_files] == [
+        "denovo_1_2500.tsv",
+        "denovo_2501_5000.tsv",
+    ]
+    assert [path.name for path in bad_files] == [
+        "mendelian_bad_1_2500.tsv",
+        "mendelian_bad_2501_5000.tsv",
+    ]
+    assert not (out / "inherited_00000.tsv").exists()
+
+    assert len(read_result_tsv(out / "denovo_1_2500.tsv")) == 1
+    assert read_result_tsv(out / "denovo_1_2500.tsv")[0][1] == "1000"
+    assert len(read_result_tsv(out / "inherited_2501_5000.tsv")) == 1
+    assert read_result_tsv(out / "inherited_2501_5000.tsv")[0][1] == "3000"
+    assert len(read_result_tsv(out / "mendelian_bad_2501_5000.tsv")) == 1
+    assert json.loads((out / "inherited_per_variant.json").read_text())["var_inh"] == 1
+    assert json.loads((out / "denovo_per_variant.json").read_text())["var_rare"] == 1
+    assert stats.inherited_variants == 1
+    assert stats.denovo_variants == 1
+    assert stats.mendelian_bad_variants == 1
+    checkpoint = json.loads((out / "checkpoint.json").read_text())
+    assert checkpoint["completed"] is True
+    assert checkpoint["shard_end"] == 5000
+    assert checkpoint["last_pos"] >= 5000
+
+
+def test_resume_skips_completed_vcf_shards(tmp_path):
+    shards = _two_tiny_shards(tmp_path / "vcf")
+    out = tmp_path / "out"
+    out.mkdir()
+    save_checkpoint(
+        out,
+        Checkpoint(
+            chrom="22",
+            last_pos=2500,
+            segment_index=0,
+            cumulative=CumulativeStats(
+                variants_seen=2,
+                alleles_tested=1,
+                denovo_entries=1,
+                denovo_variants=1,
+                denovo_per_person={"child1": 1},
+            ),
+            completed=False,
+            shard_start=1,
+            shard_end=2500,
+        ),
+    )
+
+    stats = analyze_vcf(
+        vcf_path=None,
+        af_json_path=FIXTURES / "tiny_af.json",
+        family_file=FIXTURES / "families.tsv",
+        output_dir=out,
+        vcf_shards=shards,
+        block_size=1,
+        resume=True,
+    )
+
+    assert stats.variants_seen == 4
+    assert stats.denovo_variants == 1
+    assert stats.inherited_variants == 1
+    assert stats.mendelian_bad_variants == 1
+    assert (out / "inherited_2501_5000.tsv").is_file()
+    assert not (out / "inherited_1_2500.tsv").exists()
+    assert len(read_result_tsv(out / "inherited_2501_5000.tsv")) == 1

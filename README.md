@@ -21,6 +21,20 @@ pip install -e ".[dev]"
 inherited analyze --vcf chr22.vcf.gz --af-json gnomad_chr22.json --family-file families.tsv -o results/chr22
 ```
 
+**Split pVCFs** (several `{start}_{end}` files per chromosome):
+
+```bash
+python run.py analyze \
+  --vcf-dir /data/spark/vcf \
+  --vcf-pattern SPARK.WGS.2026_08.gatk \
+  --chr chr2 \
+  --af-json gnomad_chr2.json \
+  --family-file families.tsv \
+  -o results/chr2
+```
+
+`--vcf-dir` looks for `{pattern}.{chr}_{start}_{end}.vcf.gz` (or `.vcf`). `--chr chr2` will not match `chr21` / `chr22`. Output files are labeled by each shard's coordinates (`inherited_95000001_97500000.tsv`), not by `--segment-size`. `--vcf` and `--vcf-dir` are mutually exclusive.
+
 ## Family file format
 
 Tab-separated file with a header row (required via `--family-file`):
@@ -142,8 +156,9 @@ Contigs `Y` and `chrY` are treated as nonPAR only. Analysis loops over male chil
 
 Autosomal output directory contains:
 
-- `inherited_XXXXX.tsv` / `mendelian_bad_XXXXX.tsv` / `denovo_XXXXX.tsv` — segmented result files (when `--segment-size > 0`)
-- `inherited.tsv` / `mendelian_bad.tsv` / `denovo.tsv` — single files when `--segment-size 0`
+- `inherited_XXXXX.tsv` / `mendelian_bad_XXXXX.tsv` / `denovo_XXXXX.tsv` — segmented result files (when `--vcf` and `--segment-size > 0`)
+- `inherited_{start}_{end}.tsv` / `mendelian_bad_{start}_{end}.tsv` / `denovo_{start}_{end}.tsv` — one file per input shard (when `--vcf-dir`)
+- `inherited.tsv` / `mendelian_bad.tsv` / `denovo.tsv` — single files when `--vcf` and `--segment-size 0`
 - `inherited_per_variant.json`, `inherited_per_person.json`, `denovo_per_variant.json`, `denovo_per_person.json`, `mendelian_bad_per_gt.json`, `stats.json`
 
 chrX output uses sex/region buckets:
@@ -182,7 +197,7 @@ Male nonPAR chrY full format omits the mother genotype: `child_id=father_gt|chil
 
 Use `--block-size` (default `10000`) for in-memory buffer flushes within a segment.
 
-Use `--segment-size` (default `1000000`) to split output into segment files. Set `--segment-size 0` to disable segmentation.
+Use `--segment-size` (default `1000000`) with `--vcf` to split output into segment files. Set `--segment-size 0` to disable segmentation. `--segment-size` is ignored with `--vcf-dir`; those runs split output by each input shard's `{start}_{end}`.
 
 Resume after a crash:
 
@@ -190,7 +205,7 @@ Resume after a crash:
 python run.py analyze ... -o results/chr2 --resume
 ```
 
-Requires an existing incomplete `checkpoint.json` and `--segment-size > 0`.
+Requires an existing incomplete `checkpoint.json`. With `--vcf`, also requires `--segment-size > 0`. With `--vcf-dir`, resume skips shards that ended at or before the checkpointed position.
 
 ## Tests
 

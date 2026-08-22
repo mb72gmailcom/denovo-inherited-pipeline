@@ -66,9 +66,11 @@ class Checkpoint:
     cumulative: CumulativeStats
     completed: bool = False
     details_external: bool = False
+    shard_start: int | None = None
+    shard_end: int | None = None
 
     def to_dict(self, *, include_details: bool = True) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "chrom": self.chrom,
             "last_pos": self.last_pos,
             "segment_index": self.segment_index,
@@ -76,9 +78,16 @@ class Checkpoint:
             "details_external": not include_details,
             "cumulative": self.cumulative.to_dict(include_details=include_details),
         }
+        if self.shard_start is not None:
+            data["shard_start"] = self.shard_start
+        if self.shard_end is not None:
+            data["shard_end"] = self.shard_end
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Checkpoint:
+        shard_start = data.get("shard_start")
+        shard_end = data.get("shard_end")
         return cls(
             chrom=str(data.get("chrom", "")),
             last_pos=int(data.get("last_pos", 0)),
@@ -86,6 +95,8 @@ class Checkpoint:
             completed=bool(data.get("completed", False)),
             cumulative=CumulativeStats.from_dict(data.get("cumulative", {})),
             details_external=bool(data.get("details_external", False)),
+            shard_start=int(shard_start) if shard_start is not None else None,
+            shard_end=int(shard_end) if shard_end is not None else None,
         )
 
 
