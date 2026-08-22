@@ -85,6 +85,16 @@ def resolve_family_columns(
     return resolved
 
 
+def has_parent_id(value: str) -> bool:
+    """Return True when a parent ID is present (not missing / ``0`` / ``False``)."""
+    text = value.strip()
+    if not text or text == "0":
+        return False
+    if text.lower() == "false":
+        return False
+    return True
+
+
 def normalize_sex(value: str) -> str | None:
     """Return ``male``, ``female``, or None if sex is missing/unrecognized."""
     text = value.strip().lower()
@@ -127,7 +137,13 @@ def load_family_relations(
 
     ``column_map`` overrides aliases (internal name → header in this file).
     Extra columns are ignored. Complete trios (``father`` and ``mother`` both
-    not ``0``) with a recognized sex are retained for analysis.
+    present — not empty, ``0``, or ``False``) with a recognized sex are
+    retained for analysis.
+
+    If a ``sample_id`` column is present, person IDs used for VCF matching
+    (child, father, mother in ``trio_cl``) are mapped ``ind_id → sample_id``.
+    Rows with an empty ``sample_id`` are omitted from the map. When
+    ``sample_id`` is absent, IDs are used as written (old files).
     """
     relations = FamilyRelations()
 
@@ -139,37 +155,93 @@ def load_family_relations(
             raise ValueError(f"family file is empty: {path}") from exc
 
         inds = resolve_family_columns(header, column_map)
+        sample_idx = _optional_column_index(header, "sample_id")
+        rows = [
+            row
+            for row in reader
+            if row and max(inds.values()) < len(row)
+        ]
 
-        for row in reader:
-            if not row:
+    id_to_sample = (
+        _build_sample_id_map(rows, inds["spid"], sample_idx)
+        if sample_idx is not None
+        else None
+    )
+
+    for row in rows:
+        spid = row[inds["spid"]]
+        family_id = row[inds["sfid"]]
+        father_id = row[inds["father"]]
+        mother_id = row[inds["mother"]]
+        sex = normalize_sex(row[inds["sex"]])
+
+        relations.family_size[family_id] = relations.family_size.get(family_id, 0) + 1
+        relations.counts[spid] = relations.counts.get(spid, 0) + 1
+        relations.trio_all[spid] = (father_id, mother_id)
+
+        if has_parent_id(father_id) or has_parent_id(mother_id):
+            relations.trio[spid] = (mother_id, father_id)
+
+        if has_parent_id(father_id) and has_parent_id(mother_id):
+            if sex is None:
                 continue
-            if max(inds.values()) >= len(row):
+            child_id, father_vcf, mother_vcf = _vcf_trio_ids(
+                spid, father_id, mother_id, id_to_sample
+            )
+            if child_id is None or father_vcf is None or mother_vcf is None:
                 continue
-
-            spid = row[inds["spid"]]
-            family_id = row[inds["sfid"]]
-            father_id = row[inds["father"]]
-            mother_id = row[inds["mother"]]
-            sex = normalize_sex(row[inds["sex"]])
-
-            relations.family_size[family_id] = relations.family_size.get(family_id, 0) + 1
-            relations.counts[spid] = relations.counts.get(spid, 0) + 1
-            relations.trio_all[spid] = (father_id, mother_id)
-
-            if father_id != "0" or mother_id != "0":
-                relations.trio[spid] = (mother_id, father_id)
-
-            if father_id != "0" and mother_id != "0":
-                if sex is None:
-                    continue
-                relations.trio_cl[spid] = (mother_id, father_id)
-                relations.trios_ids.append([spid, father_id, mother_id])
-                if sex == "female":
-                    relations.female_children.add(spid)
-                else:
-                    relations.male_children.add(spid)
+            relations.trio_cl[child_id] = (mother_vcf, father_vcf)
+            relations.trios_ids.append([child_id, father_vcf, mother_vcf])
+            if sex == "female":
+                relations.female_children.add(child_id)
+            else:
+                relations.male_children.add(child_id)
 
     return relations
+
+
+def _optional_column_index(header: list[str], name: str) -> int | None:
+    for index, raw_name in enumerate(header):
+        if raw_name.strip() == name:
+            return index
+    return None
+
+
+def _build_sample_id_map(
+    rows: list[list[str]],
+    person_idx: int,
+    sample_idx: int,
+) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for row in rows:
+        if sample_idx >= len(row):
+            continue
+        person_id = row[person_idx].strip()
+        sample_id = row[sample_idx].strip()
+        if not person_id or not sample_id:
+            continue
+        previous = mapping.get(person_id)
+        if previous is not None and previous != sample_id:
+            raise ValueError(
+                f"Conflicting sample_id for {person_id}: {previous!r} vs {sample_id!r}"
+            )
+        mapping[person_id] = sample_id
+    return mapping
+
+
+def _vcf_trio_ids(
+    child_id: str,
+    father_id: str,
+    mother_id: str,
+    id_to_sample: dict[str, str] | None,
+) -> tuple[str | None, str | None, str | None]:
+    if id_to_sample is None:
+        return child_id, father_id, mother_id
+    return (
+        id_to_sample.get(child_id.strip()),
+        id_to_sample.get(father_id.strip()),
+        id_to_sample.get(mother_id.strip()),
+    )
 
 
 def build_trio_indices(

@@ -10,6 +10,7 @@ from inherited.classify import (
     classify_trio,
 )
 from inherited.families import (
+    has_parent_id,
     load_family_column_map,
     load_family_relations,
     normalize_sex,
@@ -110,6 +111,89 @@ def test_family_map_supports_custom_headers(tmp_path):
     )
     rel = load_family_relations(path, column_map=load_family_column_map(mapping))
     assert rel.trio_cl["child1"] == ("ma1", "fa1")
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("fa1", True),
+        ("0", False),
+        ("", False),
+        ("   ", False),
+        ("False", False),
+        ("false", False),
+        ("FALSE", False),
+    ],
+)
+def test_has_parent_id(value, expected):
+    assert has_parent_id(value) is expected
+
+
+def test_load_family_relations_maps_ind_id_to_sample_id(tmp_path):
+    path = tmp_path / "families.tsv"
+    path.write_text(
+        "ind_id\tsample_id\tfamily_id\tfather_id\tmother_id\tsex\n"
+        "SP_child\tSDSM-child\tfam1\tSP_fa\tSP_ma\tFemale\n"
+        "SP_fa\tSDSM-fa\tfam1\t\t\tMale\n"
+        "SP_ma\tSDSM-ma\tfam1\t\t\tFemale\n"
+    )
+    rel = load_family_relations(path)
+    assert rel.trio_cl["SDSM-child"] == ("SDSM-ma", "SDSM-fa")
+    assert rel.trios_ids == [["SDSM-child", "SDSM-fa", "SDSM-ma"]]
+    assert "SDSM-child" in rel.female_children
+    assert "SP_child" not in rel.trio_cl
+    assert rel.trio["SP_child"] == ("SP_ma", "SP_fa")
+    assert rel.family_size["fam1"] == 3
+
+
+def test_load_family_relations_excludes_trio_without_sample_id(tmp_path):
+    path = tmp_path / "families.tsv"
+    path.write_text(
+        "ind_id\tsample_id\tfamily_id\tfather_id\tmother_id\tsex\n"
+        "SP_child\tSDSM-child\tfam1\tSP_fa\tSP_ma\tFemale\n"
+        "SP_fa\t\tfam1\t\t\tMale\n"
+        "SP_ma\tSDSM-ma\tfam1\t\t\tFemale\n"
+        "SP_ok\tSDSM-ok\tfam2\tSP_fa2\tSP_ma2\tMale\n"
+        "SP_fa2\tSDSM-fa2\tfam2\t\t\tMale\n"
+        "SP_ma2\tSDSM-ma2\tfam2\t\t\tFemale\n"
+    )
+    rel = load_family_relations(path)
+    assert set(rel.trio_cl) == {"SDSM-ok"}
+    assert rel.trio_cl["SDSM-ok"] == ("SDSM-ma2", "SDSM-fa2")
+    assert "SP_child" not in rel.trio_cl
+    assert "SDSM-child" not in rel.trio_cl
+    assert "SDSM-ok" in rel.male_children
+
+
+def test_load_family_relations_rejects_conflicting_sample_ids(tmp_path):
+    path = tmp_path / "families.tsv"
+    path.write_text(
+        "ind_id\tsample_id\tfamily_id\tfather_id\tmother_id\tsex\n"
+        "SP_child\tSDSM-a\tfam1\tSP_fa\tSP_ma\tFemale\n"
+        "SP_child\tSDSM-b\tfam1\tSP_fa\tSP_ma\tFemale\n"
+        "SP_fa\tSDSM-fa\tfam1\t\t\tMale\n"
+        "SP_ma\tSDSM-ma\tfam1\t\t\tFemale\n"
+    )
+    with pytest.raises(ValueError, match="Conflicting sample_id"):
+        load_family_relations(path)
+
+
+def test_load_family_relations_skips_blank_or_false_parents(tmp_path):
+    path = tmp_path / "families.tsv"
+    path.write_text(
+        "ind_id\tfamily_id\tfather_id\tmother_id\tsex\n"
+        "child_ok\tfam1\tfa1\tma1\tFemale\n"
+        "child_blank\tfam1\t\t\tMale\n"
+        "child_false\tfam1\tFalse\tFalse\tFemale\n"
+        "child_one\tfam1\t\tma1\tMale\n"
+        "fa1\tfam1\t0\t0\tMale\n"
+        "ma1\tfam1\t0\t0\tFemale\n"
+    )
+    rel = load_family_relations(path)
+    assert set(rel.trio_cl) == {"child_ok"}
+    assert "child_blank" not in rel.trio
+    assert "child_false" not in rel.trio
+    assert rel.trio["child_one"] == ("ma1", "")
 
 
 def test_load_family_relations_splits_sex_and_skips_unknown():
