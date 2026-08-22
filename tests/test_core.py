@@ -10,7 +10,14 @@ from inherited.classify import (
     classify_trio,
 )
 from inherited.families import load_family_relations, normalize_sex
-from inherited.genotype import QualityFilters, get_good_site, is_good, is_hom_ref, is_mendelian_diploid
+from inherited.genotype import (
+    QualityFilters,
+    get_good_site,
+    is_good,
+    is_hom_ref,
+    is_mendelian_diploid,
+    sample_gt_has_alt,
+)
 from inherited.xchrom import chrom_mode_for, is_x_chrom, is_y_chrom, male_x_bucket, x_region
 
 
@@ -153,6 +160,25 @@ def test_get_good_site_multiallelic_clean_ad():
     assert get_good_site(sample, 2, clean_ad=True) == (-1, ".", "0")
     assert get_good_site(sample, 3, clean_ad=True) == (1, "0/3", "30")
     assert get_good_site(sample, 3, clean_ad=False) == (-1, ".", "0")
+
+
+def test_sample_gt_has_alt_skips_hom_ref_without_format_fields():
+    assert sample_gt_has_alt("0/0:1:1,0:0,0,0,0:1:0,1,1:.", 1) is False
+    assert sample_gt_has_alt("0|0:30:30,0:0,0,0,0:30:0,30,30:.", 1) is False
+    assert sample_gt_has_alt("0:5:5,0:0,0,0,0:20:0,20:.", 1) is False
+    assert sample_gt_has_alt("0/0", 1) is False
+    assert sample_gt_has_alt("./.:30:15,15:0,0,0,0:30:0,30,30:.", 1) is False
+
+
+def test_sample_gt_has_alt_detects_carriers():
+    assert sample_gt_has_alt("0/1:5:2,3:0,0,0,0:30:0,30,30:.", 1) is True
+    assert sample_gt_has_alt("1|0:30:15,15:0,0,0,0:30:0,30,30:.", 1) is True
+    assert sample_gt_has_alt("1/1:10:1,9:0,0,0,0:30:0,30,30:.", 1) is True
+    assert sample_gt_has_alt("0/2:30:10,0,20:0,0,0,0:30:0,30,30:.", 1) is False
+    assert sample_gt_has_alt("0/2:30:10,0,20:0,0,0,0:30:0,30,30:.", 2) is True
+    assert sample_gt_has_alt("1/2:30:0,15,15:0,0,0,0:30:0,30,30:.", 1) is True
+    assert sample_gt_has_alt("0/10:30:10,0,0,0,0,0,0,0,0,0,20:0,0,0,0:30:.", 1) is False
+    assert sample_gt_has_alt("0/10:30:10,0,0,0,0,0,0,0,0,0,20:0,0,0,0:30:.", 10) is True
 
 
 def test_get_good_site_counts_alt():

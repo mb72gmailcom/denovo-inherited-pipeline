@@ -165,6 +165,31 @@ def is_good(
     return ab >= ab_hom_min
 
 
+def sample_gt_has_alt(sample_field: str, alt_index: int) -> bool:
+    """Return True if the GT field carries ``alt_index``. Ignores DP/AD/GQ.
+
+    Used to skip non-carrier children before ``get_good_site``. The common
+    homozygous-reference forms are rejected without splitting FORMAT.
+    """
+    if sample_field.startswith(("0/0:", "0|0:", "0:")):
+        return False
+
+    colon = sample_field.find(":")
+    gt = sample_field if colon < 0 else sample_field[:colon]
+    if not gt or "." in gt or gt in ("0/0", "0|0", "0"):
+        return False
+    if len(gt) == 3 and gt[1] in "/|":
+        if 0 <= alt_index <= 9:
+            token = "0123456789"[alt_index]
+            return gt[0] == token or gt[2] == token
+        return False
+    if len(gt) == 1:
+        return gt.isdigit() and int(gt) == alt_index
+    return any(
+        allele.isdigit() and int(allele) == alt_index for allele in _gt_alleles(gt)
+    )
+
+
 def get_good_site(
     sample_field: str,
     alt_index: int = 1,

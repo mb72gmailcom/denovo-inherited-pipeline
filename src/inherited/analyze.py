@@ -23,7 +23,13 @@ from inherited.classify import (
 )
 from inherited.debug import log_memory_if_due
 from inherited.families import build_sexed_trio_indices, load_family_relations
-from inherited.genotype import DEFAULT_QUALITY, QualityFilters, get_good_site, is_hom_ref
+from inherited.genotype import (
+    DEFAULT_QUALITY,
+    QualityFilters,
+    get_good_site,
+    is_hom_ref,
+    sample_gt_has_alt,
+)
 from inherited.output import HitRecord, ResultWriter
 from inherited.repeats import RepeatIntervalFilter
 from inherited.shards import VcfShard
@@ -487,6 +493,8 @@ def _process_trios_for_allele(
 
     for child_idx, mother_idx, father_idx in trios_ind:
         child_sample = sample_fields[child_idx]
+        if not sample_gt_has_alt(child_sample, alt_index):
+            continue
         ac, child_gt, child_gq = get_good_site(
             child_sample,
             alt_index,
@@ -568,8 +576,11 @@ def _process_male_nonpar_pairs(
     bucket = male_x_bucket(int(pos))
 
     for child_idx, mother_idx, _father_idx in male_trios:
+        child_sample = sample_fields[child_idx]
+        if not sample_gt_has_alt(child_sample, alt_index):
+            continue
         ac, child_gt, child_gq = get_good_site(
-            sample_fields[child_idx],
+            child_sample,
             alt_index,
             clean_ad=clean_ad,
             haploid=True,
@@ -632,8 +643,11 @@ def _process_y_allele(
     bucket = X_BUCKET_MALE_NONPAR
 
     for child_idx, _mother_idx, father_idx in male_trios:
+        child_sample = sample_fields[child_idx]
+        if not sample_gt_has_alt(child_sample, alt_index):
+            continue
         ac, child_gt, child_gq = get_good_site(
-            sample_fields[child_idx],
+            child_sample,
             alt_index,
             clean_ad=clean_ad,
             haploid=True,
