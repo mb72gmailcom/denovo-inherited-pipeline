@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+_SHARD_NAME = re.compile(
+    r"^(?P<stem>.+)\.(?P<chrom>[^._]+)_(?P<start>\d+)_(?P<end>\d+)\.vcf(?:\.gz)?$"
+)
+
+
 @dataclass(frozen=True)
 class VcfShard:
     path: Path
@@ -14,31 +19,32 @@ class VcfShard:
 
 
 def discover_vcf_shards(vcf_dir: Path, pattern: str) -> list[VcfShard]:
-    """Find ``{pattern}.{chr}_{start}_{end}.vcf.gz`` shards in one directory.
+    """Find shards named ``{stem}.{chr}_{start}_{end}.vcf.gz`` in one directory.
 
-    The directory is expected to hold one chromosome. The contig token is
-    taken from the filenames. Intervals are treated as inclusive ``[start, end]``.
+    ``pattern`` may be the callset stem (``SPARK.WGS.2026_08.gatk``) or that
+    stem plus the contig (``...gatk.chr21`` or ``...gatk.chr21_``). The
+    directory is expected to hold one chromosome. Intervals are inclusive
+    ``[start, end]``.
     """
     if not pattern:
         raise ValueError("--vcf-pattern must be a non-empty filename prefix")
     if not vcf_dir.is_dir():
         raise FileNotFoundError(f"VCF directory not found: {vcf_dir}")
 
-    rx = re.compile(
-        "^"
-        + re.escape(pattern)
-        + r"\.(.+)_(\d+)_(\d+)\.vcf(?:\.gz)?$"
-    )
+    prefix = pattern.rstrip("_")
     shards: list[VcfShard] = []
     for path in vcf_dir.iterdir():
         if not path.is_file():
             continue
-        match = rx.fullmatch(path.name)
+        match = _SHARD_NAME.fullmatch(path.name)
         if match is None:
             continue
-        chrom = match.group(1)
-        start = int(match.group(2))
-        end = int(match.group(3))
+        stem = match.group("stem")
+        chrom = match.group("chrom")
+        if prefix not in (stem, f"{stem}.{chrom}"):
+            continue
+        start = int(match.group("start"))
+        end = int(match.group("end"))
         if start > end:
             raise ValueError(
                 f"Invalid shard coordinates in {path.name}: start {start} > end {end}"
@@ -46,7 +52,7 @@ def discover_vcf_shards(vcf_dir: Path, pattern: str) -> list[VcfShard]:
         shards.append(VcfShard(path=path, chrom=chrom, start=start, end=end))
 
     if not shards:
-        expected = f"{pattern}.{{chr}}_{{start}}_{{end}}.vcf.gz"
+        expected = f"{prefix}.{{chr}}_{{start}}_{{end}}.vcf.gz"
         raise FileNotFoundError(f"No VCF shards matching {expected} in {vcf_dir}")
 
     shards.sort(key=lambda shard: (shard.start, shard.end, shard.path.name))

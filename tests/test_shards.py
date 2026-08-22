@@ -10,6 +10,20 @@ def _touch(path: Path) -> Path:
     return path
 
 
+def test_discover_vcf_shards_accepts_pattern_that_includes_chrom(tmp_path):
+    _touch(tmp_path / "SPARK.WGS.2026_08.gatk.chr21_37500001_40000000.vcf.gz")
+    _touch(tmp_path / "SPARK.WGS.2026_08.gatk.chr21_40000001_42500000.vcf.gz")
+
+    for pattern in (
+        "SPARK.WGS.2026_08.gatk",
+        "SPARK.WGS.2026_08.gatk.chr21",
+        "SPARK.WGS.2026_08.gatk.chr21_",
+    ):
+        shards = discover_vcf_shards(tmp_path, pattern)
+        assert [shard.start for shard in shards] == [37500001, 40000001]
+        assert shards[0].chrom == "chr21"
+
+
 def test_discover_vcf_shards_sorts_and_parses_coordinates(tmp_path):
     _touch(tmp_path / "SPARK.WGS.2026_08.gatk.chr2_95000001_97500000.vcf.gz")
     _touch(tmp_path / "SPARK.WGS.2026_08.gatk.chr2_92500001_95000000.vcf.gz")

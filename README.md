@@ -32,7 +32,7 @@ python run.py analyze \
   -o results/chr2
 ```
 
-`--vcf-dir` looks for `{pattern}.{chr}_{start}_{end}.vcf.gz` (or `.vcf`) in a directory that holds one chromosome. The contig is read from the filenames. Output files are labeled by each shard's coordinates (`inherited_95000001_97500000.tsv`), not by `--segment-size`. `--vcf` and `--vcf-dir` are mutually exclusive.
+`--vcf-dir` looks for `{pattern}.{chr}_{start}_{end}.vcf.gz` (or `.vcf`) in a directory that holds one chromosome. `--vcf-pattern` may be the callset stem (`SPARK.WGS.2026_08.gatk`) or that stem plus the contig (`...gatk.chr21`). Output files are labeled by each shard's coordinates (`inherited_95000001_97500000.tsv`), not by `--segment-size`. `--vcf` and `--vcf-dir` are mutually exclusive.
 
 ## Family file format
 
