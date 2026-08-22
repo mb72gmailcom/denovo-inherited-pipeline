@@ -89,6 +89,7 @@ def analyze_vcf(
     short_format: bool = True,
     resume: bool = False,
     repeats_path: Path | None = None,
+    family_column_map: dict[str, str] | None = None,
     qc: QualityFilters = DEFAULT_QUALITY,
 ) -> AnalysisStats:
     """Scan a VCF, classify trios, and stream results to segmented TSV files."""
@@ -105,7 +106,7 @@ def analyze_vcf(
         shards = [VcfShard(path=vcf_path, chrom="", start=0, end=0)]
 
     af_table = load_af_json(af_json_path)
-    relations = load_family_relations(family_file)
+    relations = load_family_relations(family_file, column_map=family_column_map)
 
     checkpoint = load_checkpoint(output_dir) if resume else None
     if resume and checkpoint is None:
@@ -711,6 +712,7 @@ def save_run_params(
     short_format: bool = True,
     resume: bool = False,
     repeats_path: Path | None = None,
+    family_map_path: Path | None = None,
     qc: QualityFilters = DEFAULT_QUALITY,
 ) -> Path:
     """Write the parameters for this run into the chromosome output directory."""
@@ -732,6 +734,7 @@ def save_run_params(
         "short_format": short_format,
         "resume": resume,
         "remove_repeats": str(repeats_path.resolve()) if repeats_path is not None else None,
+        "family_map": str(family_map_path.resolve()) if family_map_path is not None else None,
         "quality_filters": qc.as_params(),
     }
     if vcf_path is not None:

@@ -9,7 +9,12 @@ from inherited.classify import (
     classify_mother_son,
     classify_trio,
 )
-from inherited.families import load_family_relations, normalize_sex
+from inherited.families import (
+    load_family_column_map,
+    load_family_relations,
+    normalize_sex,
+    resolve_family_columns,
+)
 from inherited.genotype import (
     QualityFilters,
     get_good_site,
@@ -55,6 +60,56 @@ def test_load_family_relations():
     assert rel.family_size["fam1"] == 3
     assert "child1" in rel.female_children
     assert not rel.male_children
+
+
+def test_load_family_relations_accepts_spark_column_aliases(tmp_path):
+    path = tmp_path / "families.tsv"
+    path.write_text(
+        "ind_id\tfamily_id\tfather_id\tmother_id\tsex\n"
+        "child1\tfam1\tfa1\tma1\tFemale\n"
+        "fa1\tfam1\t0\t0\tMale\n"
+        "ma1\tfam1\t0\t0\tFemale\n"
+    )
+    rel = load_family_relations(path)
+    assert rel.trio_cl["child1"] == ("ma1", "fa1")
+    assert rel.trios_ids == [["child1", "fa1", "ma1"]]
+    assert rel.family_size["fam1"] == 3
+
+
+def test_resolve_family_columns_rejects_ambiguous_aliases():
+    with pytest.raises(ValueError, match="ambiguous"):
+        resolve_family_columns(["spid", "ind_id", "sfid", "father", "mother", "sex"])
+
+
+def test_family_map_selects_among_ambiguous_columns(tmp_path):
+    path = tmp_path / "families.tsv"
+    path.write_text(
+        "spid\tind_id\tsfid\tfather\tmother\tsex\n"
+        "wrong\tchild1\tfam1\tfa1\tma1\tFemale\n"
+        "x\tfa1\tfam1\t0\t0\tMale\n"
+        "y\tma1\tfam1\t0\t0\tFemale\n"
+    )
+    mapping = tmp_path / "map.json"
+    mapping.write_text('{"spid": "ind_id"}')
+    rel = load_family_relations(path, column_map=load_family_column_map(mapping))
+    assert "child1" in rel.trio_cl
+    assert "wrong" not in rel.trio_cl
+
+
+def test_family_map_supports_custom_headers(tmp_path):
+    path = tmp_path / "families.tsv"
+    path.write_text(
+        "IID\tFID\tPAT\tMAT\tsex\n"
+        "child1\tfam1\tfa1\tma1\tFemale\n"
+        "fa1\tfam1\t0\t0\tMale\n"
+        "ma1\tfam1\t0\t0\tFemale\n"
+    )
+    mapping = tmp_path / "map.json"
+    mapping.write_text(
+        '{"spid": "IID", "sfid": "FID", "father": "PAT", "mother": "MAT"}'
+    )
+    rel = load_family_relations(path, column_map=load_family_column_map(mapping))
+    assert rel.trio_cl["child1"] == ("ma1", "fa1")
 
 
 def test_load_family_relations_splits_sex_and_skips_unknown():

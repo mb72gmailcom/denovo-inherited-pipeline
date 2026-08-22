@@ -17,6 +17,7 @@ from inherited.constants import (
     DEFAULT_MEMORY_BLOCK,
     DEFAULT_SEGMENT_SIZE,
 )
+from inherited.families import load_family_column_map
 from inherited.genotype import QualityFilters
 from inherited.shards import discover_vcf_shards
 
@@ -62,6 +63,18 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         type=Path,
         help="Tab-separated family relations file",
+    )
+    analyze.add_argument(
+        "--family-map",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help=(
+            "JSON object mapping internal family columns "
+            "(spid, sfid, father, mother, sex) to headers in --family-file. "
+            "Unmapped columns still use built-in aliases "
+            "(spid/ind_id, sfid/family_id, father/father_id, mother/mother_id, sex)."
+        ),
     )
     analyze.add_argument(
         "-o",
@@ -200,10 +213,18 @@ def main(argv: list[str] | None = None) -> None:
         if args.remove_repeats is not None and not args.remove_repeats.is_file():
             print(f"error: repeat intervals file not found: {args.remove_repeats}", file=sys.stderr)
             raise SystemExit(1)
+        if args.family_map is not None and not args.family_map.is_file():
+            print(f"error: family-map file not found: {args.family_map}", file=sys.stderr)
+            raise SystemExit(1)
 
         try:
             if args.vcf_dir is not None:
                 vcf_shards = discover_vcf_shards(args.vcf_dir, args.vcf_pattern)
+            family_column_map = (
+                load_family_column_map(args.family_map)
+                if args.family_map is not None
+                else None
+            )
             qc = QualityFilters(
                 gq=args.gq_threshold,
                 dp=args.dp_threshold,
@@ -227,6 +248,7 @@ def main(argv: list[str] | None = None) -> None:
                 short_format=args.short_format,
                 resume=args.resume,
                 repeats_path=args.remove_repeats,
+                family_column_map=family_column_map,
                 qc=qc,
             )
         except (FileNotFoundError, ValueError) as exc:
@@ -251,6 +273,7 @@ def main(argv: list[str] | None = None) -> None:
             short_format=args.short_format,
             resume=args.resume,
             repeats_path=args.remove_repeats,
+            family_map_path=args.family_map,
             qc=qc,
         )
         if vcf_shards is not None:

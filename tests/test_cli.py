@@ -33,6 +33,7 @@ def test_analyze_parser_qc_defaults():
     assert args.ab_haploid_threshold == DEFAULT_HAPLO_AB
     assert args.vcf_dir is None
     assert args.vcf_pattern is None
+    assert args.family_map is None
 
 
 def test_analyze_parser_qc_overrides():
@@ -80,6 +81,11 @@ def test_analyze_parser_vcf_dir_mode():
     assert args.vcf is None
     assert args.vcf_dir.as_posix() == "shards"
     assert args.vcf_pattern == "SPARK.WGS.2026_08.gatk"
+
+
+def test_analyze_parser_family_map():
+    args = build_parser().parse_args([*_ANALYZE_MIN, "--family-map", "map.json"])
+    assert args.family_map.as_posix() == "map.json"
 
 
 def test_analyze_parser_rejects_vcf_and_vcf_dir_together():

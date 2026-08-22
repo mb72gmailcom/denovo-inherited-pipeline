@@ -46,7 +46,15 @@ fa1     fam1    0         0         Male
 ma1     fam1    0         0         2
 ```
 
-Required columns: `spid`, `sfid`, `father`, `mother`, `sex`. Extra columns are ignored.
+Required fields (either name is accepted): `spid` / `ind_id`, `sfid` / `family_id`, `father` / `father_id`, `mother` / `mother_id`, `sex`. Extra columns are ignored.
+
+If a file uses other header names, pass `--family-map` with a JSON object from the internal name to that header:
+
+```json
+{"spid": "IID", "sfid": "FID", "father": "PAT", "mother": "MAT", "sex": "sex"}
+```
+
+Unmapped fields still use the aliases above. If both names of an alias pair are present (e.g. `spid` and `ind_id`), `--family-map` is required for that field.
 
 Complete trios (`father` and `mother` both not `0`) with a recognized sex are used for analysis. Sex values: males `1` / `Male` / `male`; females `2` / `Female` / `female`. Children with missing or unrecognized sex are skipped on all chromosomes.
 
