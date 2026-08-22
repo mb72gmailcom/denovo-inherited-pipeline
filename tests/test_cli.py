@@ -33,7 +33,6 @@ def test_analyze_parser_qc_defaults():
     assert args.ab_haploid_threshold == DEFAULT_HAPLO_AB
     assert args.vcf_dir is None
     assert args.vcf_pattern is None
-    assert args.chrom is None
 
 
 def test_analyze_parser_qc_overrides():
@@ -70,8 +69,6 @@ def test_analyze_parser_vcf_dir_mode():
             "shards",
             "--vcf-pattern",
             "SPARK.WGS.2026_08.gatk",
-            "--chr",
-            "chr2",
             "--af-json",
             "af.json",
             "--family-file",
@@ -83,7 +80,6 @@ def test_analyze_parser_vcf_dir_mode():
     assert args.vcf is None
     assert args.vcf_dir.as_posix() == "shards"
     assert args.vcf_pattern == "SPARK.WGS.2026_08.gatk"
-    assert args.chrom == "chr2"
 
 
 def test_analyze_parser_rejects_vcf_and_vcf_dir_together():

@@ -13,68 +13,47 @@ class VcfShard:
     end: int
 
 
-def chrom_filename_tokens(chrom: str) -> tuple[str, ...]:
-    """Return contig tokens that may appear in a split pVCF filename."""
-    raw = chrom.strip()
-    if not raw:
-        raise ValueError("--chr must be a non-empty contig name")
-    if raw.lower().startswith("chr"):
-        bare = raw[3:]
-        tokens = (raw, bare, f"chr{bare}")
-    else:
-        tokens = (raw, f"chr{raw}")
-    seen: list[str] = []
-    for token in tokens:
-        if token and token not in seen:
-            seen.append(token)
-    return tuple(seen)
+def discover_vcf_shards(vcf_dir: Path, pattern: str) -> list[VcfShard]:
+    """Find ``{pattern}.{chr}_{start}_{end}.vcf.gz`` shards in one directory.
 
-
-def discover_vcf_shards(vcf_dir: Path, pattern: str, chrom: str) -> list[VcfShard]:
-    """Find ``{pattern}.{chr}_{start}_{end}.vcf.gz`` shards for one contig.
-
-    Intervals are treated as inclusive ``[start, end]``. Matching is exact on
-    the contig token so ``chr2`` does not pick up ``chr21`` / ``chr22``.
+    The directory is expected to hold one chromosome. The contig token is
+    taken from the filenames. Intervals are treated as inclusive ``[start, end]``.
     """
     if not pattern:
         raise ValueError("--vcf-pattern must be a non-empty filename prefix")
     if not vcf_dir.is_dir():
         raise FileNotFoundError(f"VCF directory not found: {vcf_dir}")
 
+    rx = re.compile(
+        "^"
+        + re.escape(pattern)
+        + r"\.(.+)_(\d+)_(\d+)\.vcf(?:\.gz)?$"
+    )
     shards: list[VcfShard] = []
-    seen: set[Path] = set()
-    for token in chrom_filename_tokens(chrom):
-        rx = re.compile(
-            "^"
-            + re.escape(pattern)
-            + r"\."
-            + re.escape(token)
-            + r"_(\d+)_(\d+)\.vcf(?:\.gz)?$"
-        )
-        for path in vcf_dir.iterdir():
-            if not path.is_file() or path in seen:
-                continue
-            match = rx.fullmatch(path.name)
-            if match is None:
-                continue
-            start = int(match.group(1))
-            end = int(match.group(2))
-            if start > end:
-                raise ValueError(
-                    f"Invalid shard coordinates in {path.name}: start {start} > end {end}"
-                )
-            shards.append(VcfShard(path=path, chrom=token, start=start, end=end))
-            seen.add(path)
+    for path in vcf_dir.iterdir():
+        if not path.is_file():
+            continue
+        match = rx.fullmatch(path.name)
+        if match is None:
+            continue
+        chrom = match.group(1)
+        start = int(match.group(2))
+        end = int(match.group(3))
+        if start > end:
+            raise ValueError(
+                f"Invalid shard coordinates in {path.name}: start {start} > end {end}"
+            )
+        shards.append(VcfShard(path=path, chrom=chrom, start=start, end=end))
 
     if not shards:
-        expected = f"{pattern}.{chrom}_{{start}}_{{end}}.vcf.gz"
+        expected = f"{pattern}.{{chr}}_{{start}}_{{end}}.vcf.gz"
         raise FileNotFoundError(f"No VCF shards matching {expected} in {vcf_dir}")
 
     shards.sort(key=lambda shard: (shard.start, shard.end, shard.path.name))
     chroms = {shard.chrom for shard in shards}
     if len(chroms) > 1:
         raise ValueError(
-            f"Matched shards for more than one contig token in {vcf_dir}: {sorted(chroms)}"
+            f"Matched shards for more than one contig in {vcf_dir}: {sorted(chroms)}"
         )
     for prev, current in zip(shards, shards[1:]):
         if current.start <= prev.end:

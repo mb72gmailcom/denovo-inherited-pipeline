@@ -47,13 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--vcf-pattern",
         help=(
             "Filename prefix for --vcf-dir shards named "
-            "{pattern}.{chr}_{start}_{end}.vcf.gz"
+            "{pattern}.{chr}_{start}_{end}.vcf.gz. The contig is read from "
+            "the filenames; the directory should contain one chromosome."
         ),
-    )
-    analyze.add_argument(
-        "--chr",
-        dest="chrom",
-        help="Contig token used with --vcf-dir (e.g. chr2). Required with --vcf-dir.",
     )
     analyze.add_argument(
         "--af-json",
@@ -185,18 +181,12 @@ def main(argv: list[str] | None = None) -> None:
             if not args.vcf_pattern:
                 print("error: --vcf-dir requires --vcf-pattern", file=sys.stderr)
                 raise SystemExit(1)
-            if not args.chrom:
-                print("error: --vcf-dir requires --chr", file=sys.stderr)
-                raise SystemExit(1)
             if not args.vcf_dir.is_dir():
                 print(f"error: VCF directory not found: {args.vcf_dir}", file=sys.stderr)
                 raise SystemExit(1)
         else:
-            if args.vcf_pattern or args.chrom:
-                print(
-                    "error: --vcf-pattern and --chr require --vcf-dir",
-                    file=sys.stderr,
-                )
+            if args.vcf_pattern:
+                print("error: --vcf-pattern requires --vcf-dir", file=sys.stderr)
                 raise SystemExit(1)
             if not args.vcf.is_file():
                 print(f"error: VCF not found: {args.vcf}", file=sys.stderr)
@@ -213,9 +203,7 @@ def main(argv: list[str] | None = None) -> None:
 
         try:
             if args.vcf_dir is not None:
-                vcf_shards = discover_vcf_shards(
-                    args.vcf_dir, args.vcf_pattern, args.chrom
-                )
+                vcf_shards = discover_vcf_shards(args.vcf_dir, args.vcf_pattern)
             qc = QualityFilters(
                 gq=args.gq_threshold,
                 dp=args.dp_threshold,
@@ -250,7 +238,7 @@ def main(argv: list[str] | None = None) -> None:
             vcf_path=args.vcf,
             vcf_dir=args.vcf_dir,
             vcf_pattern=args.vcf_pattern,
-            chrom=args.chrom,
+            chrom=vcf_shards[0].chrom if vcf_shards else None,
             vcf_files=[shard.path for shard in vcf_shards] if vcf_shards else None,
             af_json_path=args.af_json,
             family_file=args.family_file,

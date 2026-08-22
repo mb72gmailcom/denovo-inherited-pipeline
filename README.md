@@ -25,15 +25,14 @@ inherited analyze --vcf chr22.vcf.gz --af-json gnomad_chr22.json --family-file f
 
 ```bash
 python run.py analyze \
-  --vcf-dir /data/spark/vcf \
+  --vcf-dir /data/spark/vcf/chr2 \
   --vcf-pattern SPARK.WGS.2026_08.gatk \
-  --chr chr2 \
   --af-json gnomad_chr2.json \
   --family-file families.tsv \
   -o results/chr2
 ```
 
-`--vcf-dir` looks for `{pattern}.{chr}_{start}_{end}.vcf.gz` (or `.vcf`). `--chr chr2` will not match `chr21` / `chr22`. Output files are labeled by each shard's coordinates (`inherited_95000001_97500000.tsv`), not by `--segment-size`. `--vcf` and `--vcf-dir` are mutually exclusive.
+`--vcf-dir` looks for `{pattern}.{chr}_{start}_{end}.vcf.gz` (or `.vcf`) in a directory that holds one chromosome. The contig is read from the filenames. Output files are labeled by each shard's coordinates (`inherited_95000001_97500000.tsv`), not by `--segment-size`. `--vcf` and `--vcf-dir` are mutually exclusive.
 
 ## Family file format
 
