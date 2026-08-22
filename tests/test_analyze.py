@@ -57,6 +57,33 @@ def test_analyze_vcf_writes_short_format_single_file(tmp_path):
     assert json.loads((tmp_path / "out" / "denovo_per_person.json").read_text())["child1"] == 1
 
 
+def test_analyze_vcf_labels_hits_with_person_id(tmp_path):
+    family = tmp_path / "families.tsv"
+    family.write_text(
+        "ind_id\tsample_id\tfamily_id\tfather_id\tmother_id\tsex\n"
+        "SP_child\tchild1\tfam1\tSP_fa\tSP_ma\tFemale\n"
+        "SP_fa\tfa1\tfam1\t0\t0\tMale\n"
+        "SP_ma\tma1\tfam1\t0\t0\tFemale\n"
+    )
+    stats = analyze_vcf(
+        vcf_path=FIXTURES / "tiny.vcf",
+        af_json_path=FIXTURES / "tiny_af.json",
+        family_file=family,
+        output_dir=tmp_path / "out",
+        multiallelic=True,
+        block_size=1,
+        segment_size=0,
+    )
+    inherited_records = read_result_tsv(tmp_path / "out" / "inherited.tsv", short_format=True)
+    denovo_records = read_result_tsv(tmp_path / "out" / "denovo.tsv", short_format=True)
+    assert inherited_records[0][4] == ["SP_child"]
+    assert denovo_records[0][4] == ["SP_child"]
+    assert json.loads((tmp_path / "out" / "denovo_per_person.json").read_text())["SP_child"] == 1
+    assert "child1" not in json.loads((tmp_path / "out" / "denovo_per_person.json").read_text())
+    assert stats.inherited_variants == 1
+    assert stats.denovo_variants == 1
+
+
 def test_analyze_vcf_writes_segmented_output(tmp_path):
     stats = analyze_vcf(
         vcf_path=FIXTURES / "tiny.vcf",

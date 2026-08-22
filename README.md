@@ -48,7 +48,7 @@ ma1     fam1    0         0         2
 
 Required fields (either name is accepted): `spid` / `ind_id`, `sfid` / `family_id`, `father` / `father_id`, `mother` / `mother_id`, `sex`. Extra columns are ignored.
 
-If a `sample_id` column is present, child / father / mother IDs used for VCF matching are remapped `ind_id → sample_id` from rows that have both values. A complete trio is dropped when any of the three has no mapping (for example a parent who was not sequenced). Files without `sample_id` keep IDs as written.
+If a `sample_id` column is present, child / father / mother IDs used for VCF matching are remapped `ind_id → sample_id` from rows that have both values. Hits in the TSV and `*_per_person.json` files are labeled with `ind_id` (via the inverse map). A complete trio is dropped when any of the three has no mapping (for example a parent who was not sequenced). Files without `sample_id` keep IDs as written.
 
 If a file uses other header names, pass `--family-map` with a JSON object from the internal name to that header:
 

@@ -22,7 +22,11 @@ from inherited.classify import (
     classify_trio,
 )
 from inherited.debug import log_memory_if_due
-from inherited.families import build_sexed_trio_indices, load_family_relations
+from inherited.families import (
+    build_sexed_trio_indices,
+    load_family_relations,
+    person_labels_for_header,
+)
 from inherited.genotype import (
     DEFAULT_QUALITY,
     QualityFilters,
@@ -150,6 +154,7 @@ def analyze_vcf(
         male_trios: list[tuple[int, int, int]] = []
         all_trios: list[tuple[int, int, int]] = []
         sample_header: list[str] = []
+        person_header: list[str] = []
         mode_set = False
 
         for shard in shards:
@@ -172,6 +177,9 @@ def analyze_vcf(
                                 )
                             continue
                         sample_header = header
+                        person_header = person_labels_for_header(
+                            sample_header, relations.sample_to_person
+                        )
                         female_trios, male_trios = build_sexed_trio_indices(
                             sample_header, relations
                         )
@@ -197,7 +205,7 @@ def analyze_vcf(
                             female_trios,
                             male_trios,
                             all_trios,
-                            sample_header,
+                            person_header,
                             writer,
                             qc=qc,
                         )
@@ -209,7 +217,7 @@ def analyze_vcf(
                             female_trios,
                             male_trios,
                             all_trios,
-                            sample_header,
+                            person_header,
                             writer,
                             qc=qc,
                         )
@@ -248,7 +256,7 @@ def _process_multiallelic_line(
     female_trios: list[tuple[int, int, int]],
     male_trios: list[tuple[int, int, int]],
     all_trios: list[tuple[int, int, int]],
-    sample_header: list[str],
+    person_header: list[str],
     writer: ResultWriter,
     *,
     qc: QualityFilters,
@@ -286,7 +294,7 @@ def _process_multiallelic_line(
             key,
             alt_index,
             sample_fields,
-            sample_header,
+            person_header,
             female_trios,
             male_trios,
             all_trios,
@@ -303,7 +311,7 @@ def _process_biallelic_line(
     female_trios: list[tuple[int, int, int]],
     male_trios: list[tuple[int, int, int]],
     all_trios: list[tuple[int, int, int]],
-    sample_header: list[str],
+    person_header: list[str],
     writer: ResultWriter,
     *,
     qc: QualityFilters,
@@ -325,7 +333,7 @@ def _process_biallelic_line(
         key,
         1,
         sample_fields,
-        sample_header,
+        person_header,
         female_trios,
         male_trios,
         all_trios,
@@ -342,7 +350,7 @@ def _process_allele(
     variant_key: str,
     alt_index: int,
     sample_fields: list[str],
-    sample_header: list[str],
+    person_header: list[str],
     female_trios: list[tuple[int, int, int]],
     male_trios: list[tuple[int, int, int]],
     all_trios: list[tuple[int, int, int]],
@@ -360,7 +368,7 @@ def _process_allele(
             variant_key,
             alt_index,
             sample_fields,
-            sample_header,
+            person_header,
             female_trios,
             male_trios,
             writer,
@@ -378,7 +386,7 @@ def _process_allele(
             variant_key,
             alt_index,
             sample_fields,
-            sample_header,
+            person_header,
             male_trios,
             writer,
             clean_ad=clean_ad,
@@ -394,7 +402,7 @@ def _process_allele(
         variant_key,
         alt_index,
         sample_fields,
-        sample_header,
+        person_header,
         all_trios,
         writer,
         clean_ad=clean_ad,
@@ -411,7 +419,7 @@ def _process_x_allele(
     variant_key: str,
     alt_index: int,
     sample_fields: list[str],
-    sample_header: list[str],
+    person_header: list[str],
     female_trios: list[tuple[int, int, int]],
     male_trios: list[tuple[int, int, int]],
     writer: ResultWriter,
@@ -427,7 +435,7 @@ def _process_x_allele(
         variant_key,
         alt_index,
         sample_fields,
-        sample_header,
+        person_header,
         female_trios,
         writer,
         clean_ad=clean_ad,
@@ -446,7 +454,7 @@ def _process_x_allele(
             variant_key,
             alt_index,
             sample_fields,
-            sample_header,
+            person_header,
             male_trios,
             writer,
             clean_ad=clean_ad,
@@ -462,7 +470,7 @@ def _process_x_allele(
         variant_key,
         alt_index,
         sample_fields,
-        sample_header,
+        person_header,
         male_trios,
         writer,
         clean_ad=clean_ad,
@@ -479,7 +487,7 @@ def _process_trios_for_allele(
     variant_key: str,
     alt_index: int,
     sample_fields: list[str],
-    sample_header: list[str],
+    person_header: list[str],
     trios_ind: list[tuple[int, int, int]],
     writer: ResultWriter,
     *,
@@ -531,7 +539,7 @@ def _process_trios_for_allele(
         if call_class is None:
             continue
 
-        pid = sample_header[child_idx]
+        pid = person_header[child_idx]
         record: HitRecord = (mother_gt, father_gt, child_gt, child_gq)
 
         if call_class == "inherited":
@@ -563,7 +571,7 @@ def _process_male_nonpar_pairs(
     variant_key: str,
     alt_index: int,
     sample_fields: list[str],
-    sample_header: list[str],
+    person_header: list[str],
     male_trios: list[tuple[int, int, int]],
     writer: ResultWriter,
     *,
@@ -605,7 +613,7 @@ def _process_male_nonpar_pairs(
         if call_class == "denovo" and not is_hom_ref(mother_gt):
             continue
 
-        pid = sample_header[child_idx]
+        pid = person_header[child_idx]
         record: HitRecord = (mother_gt, child_gt, child_gq)
         if call_class == "inherited":
             inherited_hits[pid] = record
@@ -630,7 +638,7 @@ def _process_y_allele(
     variant_key: str,
     alt_index: int,
     sample_fields: list[str],
-    sample_header: list[str],
+    person_header: list[str],
     male_trios: list[tuple[int, int, int]],
     writer: ResultWriter,
     *,
@@ -676,7 +684,7 @@ def _process_y_allele(
         if call_class == "denovo" and not is_hom_ref(father_gt):
             continue
 
-        pid = sample_header[child_idx]
+        pid = person_header[child_idx]
         record: HitRecord = (father_gt, child_gt, child_gq)
         if call_class == "inherited":
             inherited_hits[pid] = record

@@ -119,6 +119,7 @@ class FamilyRelations:
     trios_ids: list[list[str]] = field(default_factory=list)
     female_children: set[str] = field(default_factory=set)
     male_children: set[str] = field(default_factory=set)
+    sample_to_person: dict[str, str] = field(default_factory=dict)
 
 
 def load_family_relations(
@@ -142,8 +143,10 @@ def load_family_relations(
 
     If a ``sample_id`` column is present, person IDs used for VCF matching
     (child, father, mother in ``trio_cl``) are mapped ``ind_id → sample_id``.
-    Rows with an empty ``sample_id`` are omitted from the map. When
-    ``sample_id`` is absent, IDs are used as written (old files).
+    ``sample_to_person`` is the inverse, used only to label hits. Rows with
+    an empty ``sample_id`` are omitted from both maps. When ``sample_id`` is
+    absent, IDs are used as written (old files) and ``sample_to_person`` is
+    empty (identity labels).
     """
     relations = FamilyRelations()
 
@@ -162,11 +165,11 @@ def load_family_relations(
             if row and max(inds.values()) < len(row)
         ]
 
-    id_to_sample = (
-        _build_sample_id_map(rows, inds["spid"], sample_idx)
-        if sample_idx is not None
-        else None
-    )
+    id_to_sample = None
+    if sample_idx is not None:
+        id_to_sample, relations.sample_to_person = _build_sample_id_maps(
+            rows, inds["spid"], sample_idx
+        )
 
     for row in rows:
         spid = row[inds["spid"]]
@@ -207,12 +210,13 @@ def _optional_column_index(header: list[str], name: str) -> int | None:
     return None
 
 
-def _build_sample_id_map(
+def _build_sample_id_maps(
     rows: list[list[str]],
     person_idx: int,
     sample_idx: int,
-) -> dict[str, str]:
-    mapping: dict[str, str] = {}
+) -> tuple[dict[str, str], dict[str, str]]:
+    id_to_sample: dict[str, str] = {}
+    sample_to_person: dict[str, str] = {}
     for row in rows:
         if sample_idx >= len(row):
             continue
@@ -220,13 +224,30 @@ def _build_sample_id_map(
         sample_id = row[sample_idx].strip()
         if not person_id or not sample_id:
             continue
-        previous = mapping.get(person_id)
-        if previous is not None and previous != sample_id:
+        previous_sample = id_to_sample.get(person_id)
+        if previous_sample is not None and previous_sample != sample_id:
             raise ValueError(
-                f"Conflicting sample_id for {person_id}: {previous!r} vs {sample_id!r}"
+                f"Conflicting sample_id for {person_id}: {previous_sample!r} vs {sample_id!r}"
             )
-        mapping[person_id] = sample_id
-    return mapping
+        previous_person = sample_to_person.get(sample_id)
+        if previous_person is not None and previous_person != person_id:
+            raise ValueError(
+                f"Conflicting person_id for sample_id {sample_id}: "
+                f"{previous_person!r} vs {person_id!r}"
+            )
+        id_to_sample[person_id] = sample_id
+        sample_to_person[sample_id] = person_id
+    return id_to_sample, sample_to_person
+
+
+def person_labels_for_header(
+    sample_header: list[str],
+    sample_to_person: dict[str, str],
+) -> list[str]:
+    """Map VCF sample names to person IDs; identity when the map is empty."""
+    if not sample_to_person:
+        return sample_header
+    return [sample_to_person.get(sample_id, sample_id) for sample_id in sample_header]
 
 
 def _vcf_trio_ids(

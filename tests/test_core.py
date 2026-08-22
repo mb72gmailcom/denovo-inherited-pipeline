@@ -14,6 +14,7 @@ from inherited.families import (
     load_family_column_map,
     load_family_relations,
     normalize_sex,
+    person_labels_for_header,
     resolve_family_columns,
 )
 from inherited.genotype import (
@@ -61,6 +62,7 @@ def test_load_family_relations():
     assert rel.family_size["fam1"] == 3
     assert "child1" in rel.female_children
     assert not rel.male_children
+    assert rel.sample_to_person == {}
 
 
 def test_load_family_relations_accepts_spark_column_aliases(tmp_path):
@@ -144,6 +146,11 @@ def test_load_family_relations_maps_ind_id_to_sample_id(tmp_path):
     assert "SP_child" not in rel.trio_cl
     assert rel.trio["SP_child"] == ("SP_ma", "SP_fa")
     assert rel.family_size["fam1"] == 3
+    assert rel.sample_to_person == {
+        "SDSM-child": "SP_child",
+        "SDSM-fa": "SP_fa",
+        "SDSM-ma": "SP_ma",
+    }
 
 
 def test_load_family_relations_excludes_trio_without_sample_id(tmp_path):
@@ -176,6 +183,33 @@ def test_load_family_relations_rejects_conflicting_sample_ids(tmp_path):
     )
     with pytest.raises(ValueError, match="Conflicting sample_id"):
         load_family_relations(path)
+
+
+def test_load_family_relations_rejects_conflicting_person_ids(tmp_path):
+    path = tmp_path / "families.tsv"
+    path.write_text(
+        "ind_id\tsample_id\tfamily_id\tfather_id\tmother_id\tsex\n"
+        "SP_a\tSDSM-same\tfam1\tSP_fa\tSP_ma\tFemale\n"
+        "SP_b\tSDSM-same\tfam1\tSP_fa\tSP_ma\tMale\n"
+        "SP_fa\tSDSM-fa\tfam1\t\t\tMale\n"
+        "SP_ma\tSDSM-ma\tfam1\t\t\tFemale\n"
+    )
+    with pytest.raises(ValueError, match="Conflicting person_id"):
+        load_family_relations(path)
+
+
+def test_person_labels_for_header_identity_when_map_empty():
+    header = ["child1", "fa1", "ma1"]
+    assert person_labels_for_header(header, {}) is header
+
+
+def test_person_labels_for_header_maps_sample_ids():
+    header = ["SDSM-child", "SDSM-fa", "SDSM-ma", "other"]
+    labels = person_labels_for_header(
+        header,
+        {"SDSM-child": "SP_child", "SDSM-fa": "SP_fa", "SDSM-ma": "SP_ma"},
+    )
+    assert labels == ["SP_child", "SP_fa", "SP_ma", "other"]
 
 
 def test_load_family_relations_skips_blank_or_false_parents(tmp_path):
